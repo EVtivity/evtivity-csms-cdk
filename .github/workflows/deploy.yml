@@ -1,0 +1,56 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment to deploy
+        type: choice
+        required: true
+        options: [dev, qa, prod]
+      stacks:
+        description: 'Stack pattern (default: --all)'
+        type: string
+        required: false
+        default: --all
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: cdk deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - name: cdk diff
+        env:
+          TARGET_ENV: ${{ inputs.env }}
+          STACK_PATTERN: ${{ inputs.stacks }}
+        run: npx cdk diff --context env="$TARGET_ENV" $STACK_PATTERN || true
+
+      - name: cdk deploy
+        env:
+          TARGET_ENV: ${{ inputs.env }}
+          STACK_PATTERN: ${{ inputs.stacks }}
+        run: npx cdk deploy --context env="$TARGET_ENV" $STACK_PATTERN --require-approval never

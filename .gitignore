@@ -1,0 +1,16 @@
+node_modules/
+dist/
+cdk.out/
+.cdk.staging/
+*.d.ts
+*.js
+!eslint.config.js
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/
+cdk.out/
