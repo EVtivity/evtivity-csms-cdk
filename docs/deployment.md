@@ -25,6 +25,8 @@ Open `config/dev.yaml` (or `qa.yaml`, `prod.yaml`) and replace the placeholders:
 - `domain.hostedZoneId` (optional): if you know it, supplying it skips the Route 53 lookup
 - `services.<name>.imageTag`: container image tags (must exist on `ghcr.io/evtivity/*`)
 
+After editing, delete `cdk.context.json` so CDK can populate it from your real account on the next synth. The committed file holds placeholder lookup values keyed to account `111111111111` and lets CI synth run without AWS credentials. Once you switch accounts, the cache keys no longer match and CDK will perform the real lookups.
+
 ### 3. Pre-create application secrets
 
 The CDK creates infrastructure secrets (Aurora master credentials, Redis auth token, composed `database-url` and `redis-url`) automatically. The application also expects `jwt-secret` and `settings-encryption-key`. Create them with random values once per env:
