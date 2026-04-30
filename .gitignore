@@ -8,6 +8,7 @@ cdk.out/
 .env
 .env.*
 !.env.example
+config/*.local.yaml
 *.log
 .DS_Store
 .idea/
