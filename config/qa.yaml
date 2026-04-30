@@ -1,24 +1,20 @@
 # EVtivity CSMS - qa environment
 # Pre-prod verification, slightly larger than dev.
 env: qa
-account: "111111111111"             # replace with your qa AWS account id (or same as dev/prod)
+account: "111111111111" # replace with your qa AWS account id (or same as dev/prod)
 region: us-east-1
-
 domain:
   apex: evtivity.com
   subdomain: qa
   # hostedZoneId: ZXXXXXXXXXXXXX
-
 tags:
   Environment: qa
   Project: evtivity-csms
   ManagedBy: cdk
-
 vpc:
   cidr: 10.20.0.0/16
   maxAzs: 2
   natCount: 1
-
 aurora:
   minCapacity: 0.5
   maxCapacity: 2
@@ -27,30 +23,25 @@ aurora:
   deletionProtection: false
   iamAuthentication: true
   autoMinorVersionUpgrade: true
-
 redis:
   nodeType: cache.t4g.small
   replicas: 0
   multiAz: false
   automaticFailoverEnabled: false
   snapshotRetentionLimit: 1
-
 s3:
   versioned: true
-
 waf:
   rateLimit5min: 2000
   blockGeoMatch: []
-
 alb:
   idleTimeoutSeconds: 60
   accessLogsRetentionDays: 14
   deletionProtection: false
-
 services:
   api:
     imageRepo: ghcr.io/evtivity/evtivity-csms/api
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -69,10 +60,9 @@ services:
       REDIS_URL: evtivity/qa/redis-url
       JWT_SECRET: evtivity/qa/jwt-secret
       SETTINGS_ENCRYPTION_KEY: evtivity/qa/settings-encryption-key
-
   ocpp:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpp
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -88,10 +78,9 @@ services:
       REDIS_URL: evtivity/qa/redis-url
       JWT_SECRET: evtivity/qa/jwt-secret
       SETTINGS_ENCRYPTION_KEY: evtivity/qa/settings-encryption-key
-
   ocpi:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -105,10 +94,9 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/qa/database-url
       REDIS_URL: evtivity/qa/redis-url
-
   csms:
     imageRepo: ghcr.io/evtivity/evtivity-csms/csms
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
@@ -119,10 +107,9 @@ services:
     public: true
     hostnamePrefix: csms
     albPriority: 40
-
   portal:
     imageRepo: ghcr.io/evtivity/evtivity-csms/portal
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
@@ -133,10 +120,9 @@ services:
     public: true
     hostnamePrefix: portal
     albPriority: 50
-
   worker:
     imageRepo: ghcr.io/evtivity/evtivity-csms/worker
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -146,10 +132,9 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/qa/database-url
       REDIS_URL: evtivity/qa/redis-url
-
   migrate:
     imageRepo: ghcr.io/evtivity/evtivity-csms/migrate
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 0
@@ -159,11 +144,10 @@ services:
     isOneShot: true
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/qa/database-url
-
   css:
     enabled: true
     imageRepo: ghcr.io/evtivity/evtivity-csms/css
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -175,11 +159,10 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/qa/database-url
       REDIS_URL: evtivity/qa/redis-url
-
   ocpi-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
@@ -190,11 +173,10 @@ services:
       NODE_ENV: production
       OCPI_SIM_ROLE: emsp
       OCPI_SIM_PORT: "3003"
-
   ocpi-cpo-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
