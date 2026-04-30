@@ -74,10 +74,45 @@ export class CsmsService extends Construct {
       ecsSecrets[envKey] = ecs.Secret.fromSsmParameter(param);
     }
 
+    // Inject TLS PEMs from a JSON secret (keys: cert, key, ca) for OCPP SP3 and
+    // CSS client cert. The container entrypoint materializes these to files.
+    const tlsSecretName =
+      serviceName === 'ocpp' && config.ocppTls.enabled
+        ? config.ocppTls.secretName
+        : serviceName === 'css' && config.cssTls.enabled
+          ? config.cssTls.secretName
+          : undefined;
+    if (tlsSecretName != null) {
+      const tlsSecret = secretsmanager.Secret.fromSecretNameV2(this, 'TlsSecret', tlsSecretName);
+      const prefix = serviceName === 'ocpp' ? 'OCPP_TLS' : 'CSS';
+      const certEnv = serviceName === 'ocpp' ? `${prefix}_CERT_PEM` : `${prefix}_CLIENT_CERT_PEM`;
+      const keyEnv = serviceName === 'ocpp' ? `${prefix}_KEY_PEM` : `${prefix}_CLIENT_KEY_PEM`;
+      const caEnv = `${prefix}_CA_PEM`;
+      ecsSecrets[certEnv] = ecs.Secret.fromSecretsManager(tlsSecret, 'cert');
+      ecsSecrets[keyEnv] = ecs.Secret.fromSecretsManager(tlsSecret, 'key');
+      ecsSecrets[caEnv] = ecs.Secret.fromSecretsManager(tlsSecret, 'ca');
+    }
+
     const portMappings: ecs.PortMapping[] =
       serviceConfig.containerPort != null
-        ? [{ containerPort: serviceConfig.containerPort, protocol: ecs.Protocol.TCP }]
+        ? [
+            {
+              containerPort: serviceConfig.containerPort,
+              protocol: ecs.Protocol.TCP,
+              name: serviceName,
+            },
+          ]
         : [];
+
+    // OCPP gets the TLS WebSocket port (8443 by default) so the NLB target
+    // group resolves to a real container port.
+    if (serviceName === 'ocpp' && config.ocppTls.enabled) {
+      portMappings.push({
+        containerPort: config.ocppTls.port,
+        protocol: ecs.Protocol.TCP,
+        name: `${serviceName}-tls`,
+      });
+    }
 
     this.taskDefinition.addContainer('app', {
       image: ecs.ContainerImage.fromRegistry(`${serviceConfig.imageRepo}:${serviceConfig.imageTag}`),
@@ -124,6 +159,40 @@ export class CsmsService extends Construct {
       return;
     }
 
+    const tlsEnabled =
+      config.serviceConnect.enabled &&
+      config.serviceConnect.tls.enabled &&
+      config.serviceConnect.tls.privateCaArn != null &&
+      config.serviceConnect.tls.privateCaArn !== '';
+
+    const tlsCfg =
+      tlsEnabled && config.serviceConnect.tls.privateCaArn != null
+        ? { awsPcaAuthorityArn: config.serviceConnect.tls.privateCaArn }
+        : undefined;
+
+    const serviceConnectConfig = config.serviceConnect.enabled
+      ? {
+          serviceConnectConfiguration: {
+            namespace: config.serviceConnect.namespace,
+            services:
+              serviceConfig.containerPort != null
+                ? [
+                    {
+                      portMappingName: serviceName,
+                      dnsName: serviceName,
+                      port: serviceConfig.containerPort,
+                      ...(tlsCfg != null && { tls: tlsCfg }),
+                    },
+                  ]
+                : [],
+            logDriver: ecs.LogDrivers.awsLogs({
+              streamPrefix: `${serviceName}-sc`,
+              logGroup: this.logGroup,
+            }),
+          },
+        }
+      : {};
+
     this.service = new ecs.FargateService(this, 'Service', {
       cluster,
       taskDefinition: this.taskDefinition,
@@ -136,22 +205,25 @@ export class CsmsService extends Construct {
       enableExecuteCommand: !isProd,
       minHealthyPercent: 50,
       maxHealthyPercent: 200,
+      ...serviceConnectConfig,
     });
 
-    // Autoscaling
+    // Autoscaling. OCPP holds long-lived WebSocket sessions, so its scale-in
+    // cooldown is widened to 300s to give connections time to drain gracefully.
     if (serviceConfig.maxCount > serviceConfig.minCount) {
+      const scaleInCooldownSeconds = serviceName === 'ocpp' ? 300 : 120;
       const scaling = this.service.autoScaleTaskCount({
         minCapacity: serviceConfig.minCount,
         maxCapacity: serviceConfig.maxCount,
       });
       scaling.scaleOnCpuUtilization('CpuScaling', {
         targetUtilizationPercent: 70,
-        scaleInCooldown: Duration.seconds(120),
+        scaleInCooldown: Duration.seconds(scaleInCooldownSeconds),
         scaleOutCooldown: Duration.seconds(60),
       });
       scaling.scaleOnMemoryUtilization('MemScaling', {
         targetUtilizationPercent: 75,
-        scaleInCooldown: Duration.seconds(120),
+        scaleInCooldown: Duration.seconds(scaleInCooldownSeconds),
         scaleOutCooldown: Duration.seconds(60),
       });
     }

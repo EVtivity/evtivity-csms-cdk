@@ -24,7 +24,10 @@ export class DomainStack extends Stack {
     super(scope, id, props);
 
     const { config } = props;
-    this.zoneApex = `${config.domain.subdomain}.${config.domain.apex}`;
+    this.zoneApex =
+      config.domain.subdomain === ''
+        ? config.domain.apex
+        : `${config.domain.subdomain}.${config.domain.apex}`;
 
     this.hostedZone =
       config.domain.hostedZoneId != null

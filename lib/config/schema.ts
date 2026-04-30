@@ -46,7 +46,9 @@ export const configSchema = z.object({
 
   domain: z.object({
     apex: z.string().min(1),
-    subdomain: z.string().min(1),
+    // Empty string places services on the apex (e.g. csms.evtivity.com).
+    // Non-empty produces a per-env prefix (e.g. csms.dev.evtivity.com).
+    subdomain: z.string().default(''),
     hostedZoneId: z.string().optional(),
   }),
 
@@ -92,6 +94,52 @@ export const configSchema = z.object({
     accessLogsRetentionDays: z.number().int().min(1).default(30),
     deletionProtection: z.boolean().default(false),
   }),
+
+  // SP3 mTLS for OCPP. When enabled, an NLB on `port` (TCP passthrough) is
+  // created and the OCPP container receives the cert/key/CA PEMs from the
+  // referenced Secrets Manager secret (JSON keys: cert, key, ca).
+  ocppTls: z
+    .object({
+      enabled: z.boolean().default(false),
+      secretName: z.string().optional(),
+      port: z.number().int().min(1).max(65535).default(8443),
+    })
+    .default({ enabled: false, port: 8443 }),
+
+  // Charging Station Simulator client cert for SP3 testing. Same shape as
+  // ocppTls; PEMs are materialized to files inside the container.
+  cssTls: z
+    .object({
+      enabled: z.boolean().default(false),
+      secretName: z.string().optional(),
+    })
+    .default({ enabled: false }),
+
+  // ECS Service Connect for east-west service discovery and (optional) mTLS.
+  // TLS requires AWS Private CA; without it Service Connect runs unencrypted.
+  serviceConnect: z
+    .object({
+      enabled: z.boolean().default(false),
+      namespace: z.string().default('csms.local'),
+      tls: z
+        .object({
+          enabled: z.boolean().default(false),
+          privateCaArn: z.string().optional(),
+        })
+        .default({ enabled: false })
+        .refine(
+          (t) => !t.enabled || (t.privateCaArn != null && t.privateCaArn !== ''),
+          { message: 'serviceConnect.tls.privateCaArn is required when tls.enabled is true' },
+        ),
+    })
+    .default({ enabled: false, namespace: 'csms.local', tls: { enabled: false } }),
+
+  monitoring: z
+    .object({
+      enabled: z.boolean().default(false),
+      ampRetentionDays: z.number().int().min(1).default(30),
+    })
+    .default({ enabled: false, ampRetentionDays: 30 }),
 
   services: z.record(z.string(), serviceConfig),
 });

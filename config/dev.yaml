@@ -65,8 +65,6 @@ services:
     env:
       NODE_ENV: production
       LOG_LEVEL: info
-    envFromSsm:
-      CORS_ORIGIN: /evtivity/dev/cors-origin
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/dev/database-url
       REDIS_URL: evtivity/dev/redis-url
@@ -125,7 +123,7 @@ services:
     containerPort: 80
     healthCheckPath: /health
     public: true
-    hostnamePrefix: dashboard
+    hostnamePrefix: csms
     albPriority: 40
 
   portal:
@@ -185,3 +183,36 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/dev/database-url
       REDIS_URL: evtivity/dev/redis-url
+
+  ocpi-sim:
+    enabled: false
+    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
+    imageTag: v0.1.2
+    cpu: 256
+    memoryMiB: 512
+    desiredCount: 1
+    minCount: 1
+    maxCount: 1
+    public: false
+    env:
+      NODE_ENV: production
+      OCPI_SIM_ROLE: emsp
+      OCPI_SIM_PORT: "3003"
+
+  ocpi-cpo-sim:
+    enabled: false
+    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
+    imageTag: v0.1.2
+    cpu: 256
+    memoryMiB: 512
+    desiredCount: 1
+    minCount: 1
+    maxCount: 1
+    public: false
+    env:
+      NODE_ENV: production
+      OCPI_SIM_ROLE: cpo
+      OCPI_SIM_PORT: "3004"
+      OCPI_SIM_AUTO_SESSION: "false"
+      OCPI_SIM_SESSION_INTERVAL: "300"
+      OCPI_SIM_SESSION_DURATION: "60"
