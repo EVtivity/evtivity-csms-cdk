@@ -1,24 +1,20 @@
 # EVtivity CSMS - prod environment
 # Multi-AZ everywhere, deletion protection on.
 env: prod
-account: "111111111111"             # replace with your prod AWS account id
+account: "111111111111" # replace with your prod AWS account id
 region: us-east-1
-
 domain:
   apex: evtivity.com
-  subdomain: ""              # bare apex - csms.evtivity.com, api.evtivity.com, etc.
+  subdomain: "" # bare apex - csms.evtivity.com, api.evtivity.com, etc.
   # hostedZoneId: ZXXXXXXXXXXXXX
-
 tags:
   Environment: prod
   Project: evtivity-csms
   ManagedBy: cdk
-
 vpc:
   cidr: 10.30.0.0/16
   maxAzs: 3
   natCount: 2
-
 aurora:
   minCapacity: 2
   maxCapacity: 16
@@ -27,30 +23,25 @@ aurora:
   deletionProtection: true
   iamAuthentication: true
   autoMinorVersionUpgrade: true
-
 redis:
   nodeType: cache.t4g.medium
   replicas: 1
   multiAz: true
   automaticFailoverEnabled: true
   snapshotRetentionLimit: 7
-
 s3:
   versioned: true
-
 waf:
   rateLimit5min: 2000
   blockGeoMatch: []
-
 alb:
   idleTimeoutSeconds: 60
   accessLogsRetentionDays: 90
   deletionProtection: true
-
 services:
   api:
     imageRepo: ghcr.io/evtivity/evtivity-csms/api
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -69,10 +60,9 @@ services:
       REDIS_URL: evtivity/prod/redis-url
       JWT_SECRET: evtivity/prod/jwt-secret
       SETTINGS_ENCRYPTION_KEY: evtivity/prod/settings-encryption-key
-
   ocpp:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpp
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -88,10 +78,9 @@ services:
       REDIS_URL: evtivity/prod/redis-url
       JWT_SECRET: evtivity/prod/jwt-secret
       SETTINGS_ENCRYPTION_KEY: evtivity/prod/settings-encryption-key
-
   ocpi:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -105,10 +94,9 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/prod/database-url
       REDIS_URL: evtivity/prod/redis-url
-
   csms:
     imageRepo: ghcr.io/evtivity/evtivity-csms/csms
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 2
@@ -119,10 +107,9 @@ services:
     public: true
     hostnamePrefix: csms
     albPriority: 40
-
   portal:
     imageRepo: ghcr.io/evtivity/evtivity-csms/portal
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 2
@@ -133,10 +120,9 @@ services:
     public: true
     hostnamePrefix: portal
     albPriority: 50
-
   worker:
     imageRepo: ghcr.io/evtivity/evtivity-csms/worker
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -146,10 +132,9 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/prod/database-url
       REDIS_URL: evtivity/prod/redis-url
-
   migrate:
     imageRepo: ghcr.io/evtivity/evtivity-csms/migrate
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 0
@@ -159,14 +144,12 @@ services:
     isOneShot: true
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/prod/database-url
-
   # css and ocpi-simulator are dev/qa-only test fixtures.
   # Add them here only if you need them in prod, with enabled: true.
-
   css:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/css
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -178,11 +161,10 @@ services:
     secretsFromSecretsManager:
       DATABASE_URL: evtivity/prod/database-url
       REDIS_URL: evtivity/prod/redis-url
-
   ocpi-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
@@ -193,11 +175,10 @@ services:
       NODE_ENV: production
       OCPI_SIM_ROLE: emsp
       OCPI_SIM_PORT: "3003"
-
   ocpi-cpo-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.2
+    imageTag: v0.1.3
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
