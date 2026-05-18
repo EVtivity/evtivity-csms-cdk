@@ -41,7 +41,7 @@ alb:
 services:
   api:
     imageRepo: ghcr.io/evtivity/evtivity-csms/api
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -62,7 +62,7 @@ services:
       SETTINGS_ENCRYPTION_KEY: evtivity/prod/settings-encryption-key
   ocpp:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpp
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -80,7 +80,7 @@ services:
       SETTINGS_ENCRYPTION_KEY: evtivity/prod/settings-encryption-key
   ocpi:
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -96,7 +96,7 @@ services:
       REDIS_URL: evtivity/prod/redis-url
   csms:
     imageRepo: ghcr.io/evtivity/evtivity-csms/csms
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 512
     memoryMiB: 1024
     desiredCount: 2
@@ -109,7 +109,7 @@ services:
     albPriority: 40
   portal:
     imageRepo: ghcr.io/evtivity/evtivity-csms/portal
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 512
     memoryMiB: 1024
     desiredCount: 2
@@ -122,7 +122,7 @@ services:
     albPriority: 50
   worker:
     imageRepo: ghcr.io/evtivity/evtivity-csms/worker
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
@@ -134,7 +134,7 @@ services:
       REDIS_URL: evtivity/prod/redis-url
   migrate:
     imageRepo: ghcr.io/evtivity/evtivity-csms/migrate
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 0
@@ -149,7 +149,7 @@ services:
   css:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/css
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 512
     memoryMiB: 1024
     desiredCount: 1
@@ -164,7 +164,7 @@ services:
   ocpi-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
@@ -178,7 +178,7 @@ services:
   ocpi-cpo-sim:
     enabled: false
     imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: v0.1.13
+    imageTag: v0.1.14
     cpu: 256
     memoryMiB: 512
     desiredCount: 1
