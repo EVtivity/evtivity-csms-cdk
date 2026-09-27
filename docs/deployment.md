@@ -124,4 +124,5 @@ With the dev settings (`removal: destroy` everywhere) this deletes all data. Pro
 ## GitHub Actions
 
 - `ci.yml` (pull requests): typecheck, lint, compliance tests, and `cdk synth` for every environment. No AWS credentials needed.
+- `release.yml` (push to `main` that changes `package.json`, or manual): tags `v<version>` and publishes a GitHub release with a changelog from conventional commits. The CSMS release workflow bumps `package.json` and `image.tag` on every CSMS release, so each CSMS version gets a matching CDK release, the same as the Helm chart.
 - `deploy.yml` (manual): writes `config/<env>.local.yaml` from the repository variables `AWS_ACCOUNT_ID`, `HOSTED_ZONE_ID`, and `INITIAL_ADMIN_EMAIL` of the chosen GitHub environment, assumes `AWS_DEPLOY_ROLE_ARN` through OIDC, then diffs and deploys. Give the `prod` environment required reviewers.
