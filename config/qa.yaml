@@ -5,24 +5,19 @@
 env: qa
 account: '111111111111'
 region: us-east-1
-
 image:
   registry: ghcr.io/evtivity/evtivity-csms
-  tag: 0.1.19
-
+  tag: 0.1.20
 domain:
   apex: evtivity.com
   subdomain: qa
   hostedZoneId: Z00000000000000000000
-
 # First deploy of this environment. Tagged on every resource as CreatedDate.
 createdDate: '2026-09-27'
-
 tags:
   Project: evtivity-csms
   ManagedBy: cdk
   Repository: evtivity-csms-cdk
-
 vpc:
   cidr: 10.20.0.0/16
   availabilityZones: [us-east-1a, us-east-1b]
@@ -31,16 +26,13 @@ vpc:
     count: 1
   interfaceEndpoints: []
   flowLogRetentionDays: 30
-
 logs:
   retentionDays: 30
   removal: destroy
-
 ecs:
   containerInsights: enabled
   executeCommand: true
   redeployEveryDays: 7
-
 aurora:
   engineVersion: '17.9'
   mode: serverless
@@ -53,51 +45,40 @@ aurora:
   performanceInsights: false
   monitoringIntervalSeconds: 60
   poolMax: 10
-
 valkey:
   engineVersion: '8.2'
   nodeType: cache.t4g.micro
   replicas: 0
   snapshotRetentionDays: 1
-
 rotation:
   enabled: true
   databaseDays: 30
   cacheDays: 30
-
 secrets:
   removal: destroy
-
 storage:
   versioned: true
   noncurrentVersionExpirationDays: 14
   logsExpirationDays: 30
   removal: destroy
-
 alb:
   idleTimeoutSeconds: 120
   deletionProtection: false
   ocppPlainWs: false
-
 waf:
   enabled: true
   rateLimitPer5Min: 2000
   logRetentionDays: 30
-
 ocpi:
   countryCode: US
   partyId: EVT
   businessName: EVtivity
-
 initialAdmin:
   email: admin@evtivity.com
-
 appSettings: {}
-
 monitoring:
   dashboard: true
   alarms: true
-
 services:
   api:
     enabled: true

@@ -6,24 +6,19 @@
 env: prod
 account: '111111111111'
 region: us-east-1
-
 image:
   registry: ghcr.io/evtivity/evtivity-csms
-  tag: 0.1.19
-
+  tag: 0.1.20
 domain:
   apex: evtivity.com
   subdomain: '' # csms.evtivity.com, api.evtivity.com, ...
   hostedZoneId: Z00000000000000000000
-
 # First deploy of this environment. Tagged on every resource as CreatedDate.
 createdDate: '2026-09-27'
-
 tags:
   Project: evtivity-csms
   ManagedBy: cdk
   Repository: evtivity-csms-cdk
-
 vpc:
   cidr: 10.30.0.0/16
   availabilityZones: [us-east-1a, us-east-1b]
@@ -32,16 +27,13 @@ vpc:
     count: 2
   interfaceEndpoints: []
   flowLogRetentionDays: 365
-
 logs:
   retentionDays: 365
   removal: retain
-
 ecs:
   containerInsights: enabled
   executeCommand: false
   redeployEveryDays: 7
-
 aurora:
   engineVersion: '17.9'
   mode: serverless
@@ -54,71 +46,60 @@ aurora:
   performanceInsights: true
   monitoringIntervalSeconds: 60
   poolMax: 10
-
 valkey:
   engineVersion: '8.2'
   nodeType: cache.t4g.medium
   replicas: 1
   snapshotRetentionDays: 7
-
 rotation:
   enabled: true
   databaseDays: 30
   cacheDays: 30
-
 secrets:
   removal: retain
-
 storage:
   versioned: true
   noncurrentVersionExpirationDays: 90
   logsExpirationDays: 365
   removal: retain
-
 alb:
   idleTimeoutSeconds: 120
   deletionProtection: true
   ocppPlainWs: false
-
 waf:
   enabled: true
   rateLimitPer5Min: 2000
   logRetentionDays: 90
-
 ocpi:
   countryCode: US
   partyId: EVT
   businessName: EVtivity
-
 initialAdmin:
   email: admin@evtivity.com
-
 appSettings: {}
-
 monitoring:
   dashboard: true
   alarms: true
-
 services:
   api:
     enabled: true
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: { min: 2, max: 6 }
+    autoscaling: {min: 2, max: 6}
   ocpp:
     enabled: true
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: { min: 2, max: 6, scaleInCooldownSeconds: 600 }
+    autoscaling: {min: 2, max: 6, scaleInCooldownSeconds: 600}
     # Stations reconnect to another task while this one drains.
     deregistrationDelaySeconds: 300
     stopTimeoutSeconds: 120
   ocpi:
     enabled: true
     desiredCount: 2
-    autoscaling: { min: 2, max: 4 }
+    autoscaling: {min: 2, max: 4}
   csms:
     enabled: true
     desiredCount: 2
