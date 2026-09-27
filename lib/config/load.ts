@@ -43,13 +43,17 @@ function deepMerge(
   return out;
 }
 
-export function loadConfig(env: EnvName, configDir = 'config'): Config {
+export function loadConfig(
+  env: EnvName,
+  configDir = 'config',
+  options: { includeLocal?: boolean } = {},
+): Config {
   const basePath = resolve(process.cwd(), configDir, `${env}.yaml`);
   const localPath = resolve(process.cwd(), configDir, `${env}.local.yaml`);
 
   let merged = readYaml(basePath);
   const sources = [basePath];
-  if (existsSync(localPath)) {
+  if ((options.includeLocal ?? true) && existsSync(localPath)) {
     merged = deepMerge(merged, readYaml(localPath));
     sources.push(localPath);
   }

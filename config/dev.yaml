@@ -1,200 +1,142 @@
-# EVtivity CSMS - dev environment
-# Smallest infra for engineer testing.
+# EVtivity CSMS: dev environment.
+# Smallest footprint for engineer testing. Spot capacity, fck-nat, Aurora
+# that pauses when idle, a single Valkey node, no WAF. Everything is
+# destroyed with the stacks. Account and hosted zone id go in dev.local.yaml.
 env: dev
-account: "111111111111" # replace with your dev AWS account id
+account: '111111111111'
 region: us-east-1
+
+image:
+  registry: ghcr.io/evtivity/evtivity-csms
+  tag: 0.1.19
+
 domain:
   apex: evtivity.com
   subdomain: dev
-  # Omit hostedZoneId to look up by apex (requires the zone to live in this account)
-  # hostedZoneId: ZXXXXXXXXXXXXX
+  hostedZoneId: Z00000000000000000000
+
+# First deploy of this environment. Tagged on every resource as CreatedDate.
+createdDate: '2026-09-27'
+
 tags:
-  Environment: dev
   Project: evtivity-csms
   ManagedBy: cdk
+  Repository: evtivity-csms-cdk
+
 vpc:
   cidr: 10.10.0.0/16
-  maxAzs: 2
-  natCount: 1
+  availabilityZones: [us-east-1a, us-east-1b]
+  nat:
+    mode: fck-nat
+    count: 1
+  interfaceEndpoints: []
+  flowLogRetentionDays: 14
+
+logs:
+  retentionDays: 14
+  removal: destroy
+
+ecs:
+  containerInsights: enabled
+  executeCommand: true
+  redeployEveryDays: 7
+
 aurora:
-  minCapacity: 0.5
-  maxCapacity: 1
-  instanceCount: 1
+  engineVersion: '17.9'
+  mode: serverless
+  # 0 lets the cluster pause after autoPauseSeconds with no connections.
+  # It only pauses when every service is scaled to 0.
+  minCapacity: 0
+  maxCapacity: 2
+  autoPauseSeconds: 300
+  readers: 0
   backupRetentionDays: 1
   deletionProtection: false
-  iamAuthentication: true
-  autoMinorVersionUpgrade: true
-redis:
+  removal: destroy
+  performanceInsights: false
+  monitoringIntervalSeconds: 60
+  poolMax: 5
+
+valkey:
+  engineVersion: '8.2'
   nodeType: cache.t4g.micro
   replicas: 0
-  multiAz: false
-  automaticFailoverEnabled: false
-  snapshotRetentionLimit: 0
-s3:
+  snapshotRetentionDays: 1
+
+rotation:
+  enabled: true
+  databaseDays: 30
+  cacheDays: 30
+
+secrets:
+  removal: destroy
+
+storage:
   versioned: true
-waf:
-  rateLimit5min: 2000
-  blockGeoMatch: []
+  noncurrentVersionExpirationDays: 7
+  logsExpirationDays: 14
+  removal: destroy
+
 alb:
-  idleTimeoutSeconds: 60
-  accessLogsRetentionDays: 7
+  idleTimeoutSeconds: 120
   deletionProtection: false
+  ocppPlainWs: false
+
+waf:
+  enabled: false
+
+ocpi:
+  countryCode: US
+  partyId: EVT
+  businessName: EVtivity
+
+initialAdmin:
+  email: admin@evtivity.com
+
+appSettings: {}
+
+monitoring:
+  dashboard: false
+  alarms: false
+
 services:
   api:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/api
-    imageTag: 0.1.19
-    cpu: 256
-    memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 2
-    containerPort: 3001
-    healthCheckPath: /health
-    public: true
-    hostnamePrefix: api
-    albPriority: 10
-    env:
-      NODE_ENV: production
-      LOG_LEVEL: info
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
-      REDIS_URL: evtivity/dev/redis-url
-      JWT_SECRET: evtivity/dev/jwt-secret
-      SETTINGS_ENCRYPTION_KEY: evtivity/dev/settings-encryption-key
+    enabled: true
+    cpu: 512
+    memoryMiB: 1024
+    capacity: FARGATE_SPOT
   ocpp:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpp
-    imageTag: 0.1.19
+    enabled: true
     cpu: 256
     memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 2
-    containerPort: 8080
-    healthCheckPath: /
-    public: true
-    hostnamePrefix: ocpp
-    albPriority: 20
-    env:
-      NODE_ENV: production
-      LOG_LEVEL: info
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
-      REDIS_URL: evtivity/dev/redis-url
-      JWT_SECRET: evtivity/dev/jwt-secret
-      SETTINGS_ENCRYPTION_KEY: evtivity/dev/settings-encryption-key
+    capacity: FARGATE_SPOT
+    deregistrationDelaySeconds: 60
   ocpi:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi
-    imageTag: 0.1.19
+    enabled: true
     cpu: 256
     memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 2
-    containerPort: 3002
-    healthCheckPath: /health
-    public: true
-    hostnamePrefix: ocpi
-    albPriority: 30
-    env:
-      NODE_ENV: production
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
-      REDIS_URL: evtivity/dev/redis-url
+    capacity: FARGATE_SPOT
   csms:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/csms
-    imageTag: 0.1.19
+    enabled: true
     cpu: 256
     memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 2
-    containerPort: 80
-    healthCheckPath: /health
-    public: true
-    hostnamePrefix: csms
-    albPriority: 40
+    capacity: FARGATE_SPOT
   portal:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/portal
-    imageTag: 0.1.19
+    enabled: true
     cpu: 256
     memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 2
-    containerPort: 80
-    healthCheckPath: /health
-    public: true
-    hostnamePrefix: portal
-    albPriority: 50
+    capacity: FARGATE_SPOT
   worker:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/worker
-    imageTag: 0.1.19
+    enabled: true
     cpu: 256
-    memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 1
-    public: false
-    env:
-      NODE_ENV: production
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
-      REDIS_URL: evtivity/dev/redis-url
-  migrate:
-    imageRepo: ghcr.io/evtivity/evtivity-csms/migrate
-    imageTag: 0.1.19
-    cpu: 256
-    memoryMiB: 512
-    desiredCount: 0
-    minCount: 0
-    maxCount: 1
-    public: false
-    isOneShot: true
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
+    memoryMiB: 1024
+    capacity: FARGATE_SPOT
   css:
     enabled: true
-    imageRepo: ghcr.io/evtivity/evtivity-csms/css
-    imageTag: 0.1.19
     cpu: 256
     memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 1
-    public: false
-    env:
-      CSS_MODE: standby
-    secretsFromSecretsManager:
-      DATABASE_URL: evtivity/dev/database-url
-      REDIS_URL: evtivity/dev/redis-url
-  ocpi-sim:
+    capacity: FARGATE_SPOT
+  ocpiSim:
     enabled: false
-    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: 0.1.19
-    cpu: 256
-    memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 1
-    public: false
-    env:
-      NODE_ENV: production
-      OCPI_SIM_ROLE: emsp
-      OCPI_SIM_PORT: "3003"
-  ocpi-cpo-sim:
+  ocpiCpoSim:
     enabled: false
-    imageRepo: ghcr.io/evtivity/evtivity-csms/ocpi-simulator
-    imageTag: 0.1.19
-    cpu: 256
-    memoryMiB: 512
-    desiredCount: 1
-    minCount: 1
-    maxCount: 1
-    public: false
-    env:
-      NODE_ENV: production
-      OCPI_SIM_ROLE: cpo
-      OCPI_SIM_PORT: "3004"
-      OCPI_SIM_AUTO_SESSION: "false"
-      OCPI_SIM_SESSION_INTERVAL: "300"
-      OCPI_SIM_SESSION_DURATION: "60"

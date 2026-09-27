@@ -10,6 +10,7 @@ import {
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { Config } from '../config/index.js';
+import { zoneApex } from '../util.js';
 
 export interface DomainStackProps extends StackProps {
   config: Config;
@@ -24,18 +25,12 @@ export class DomainStack extends Stack {
     super(scope, id, props);
 
     const { config } = props;
-    this.zoneApex =
-      config.domain.subdomain === ''
-        ? config.domain.apex
-        : `${config.domain.subdomain}.${config.domain.apex}`;
+    this.zoneApex = zoneApex(config);
 
-    this.hostedZone =
-      config.domain.hostedZoneId != null
-        ? route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
-            hostedZoneId: config.domain.hostedZoneId,
-            zoneName: config.domain.apex,
-          })
-        : route53.HostedZone.fromLookup(this, 'Zone', { domainName: config.domain.apex });
+    this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
+      hostedZoneId: config.domain.hostedZoneId,
+      zoneName: config.domain.apex,
+    });
 
     this.certificate = new acm.Certificate(this, 'Cert', {
       domainName: this.zoneApex,

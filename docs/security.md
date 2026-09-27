@@ -1,118 +1,96 @@
 # Security posture
 
-This stack is designed to satisfy the high-impact controls in **AWS Foundational Security Best Practices** and **CIS AWS Foundations Benchmark v3.0** without requiring AWS Security Hub itself to be enabled. If you turn Security Hub on later, the stack should pass the corresponding controls without modification.
+The stacks are built to pass the AWS Foundational Security Best Practices (FSBP) controls that apply to the resources they create. Compliance is scoped to these stacks. Account-level services (Security Hub, AWS Config, CloudTrail, GuardDuty, IAM password policy, account-wide EBS default encryption) are out of scope and belong at the AWS Organization or account baseline.
+
+Three checks run on every change:
+
+1. **cdk-nag** (AWS Solutions pack) runs on every `cdk synth`. An unacknowledged finding fails the synth. Every acknowledgement lives in `lib/nag-suppressions.ts` with its reason.
+2. **Compliance tests** (`npm test`) synthesize dev, qa, and prod and assert the FSBP controls listed below, plus the accepted gaps, so a fixed or widened exception fails the build.
+3. **Exception register** (`docs/compliance-exceptions.md`) documents every control a stack does not meet, with compensating controls and a review date.
 
 ## Encryption
 
-| Resource | At rest | In transit |
-|---|---|---|
-| Aurora PostgreSQL | AES-256 with AWS-managed key (alias `aws/rds`) | TLS required on the cluster endpoint |
-| ElastiCache Redis | AES-256 with AWS-managed key | TLS (`transitEncryptionEnabled: true`) plus AUTH token |
-| S3 buckets | SSE-S3 (AWS-managed) | `aws:SecureTransport` policy denies non-TLS requests |
-| Secrets Manager | AWS-managed key (`aws/secretsmanager`) | TLS via API endpoint |
-| CloudWatch Logs | AWS-managed key | TLS via API endpoint |
+| Resource           | At rest                                | In transit                                                 |
+| ------------------ | -------------------------------------- | ---------------------------------------------------------- |
+| Aurora PostgreSQL  | AWS-managed key (`aws/rds`)            | `rds.force_ssl=1`: the cluster rejects unencrypted clients |
+| ElastiCache Valkey | AWS-managed key                        | `TransitEncryptionMode: required`                          |
+| S3 buckets         | SSE-S3                                 | Bucket policy denies requests without TLS, minimum TLS 1.2 |
+| Secrets Manager    | AWS-managed key (`aws/secretsmanager`) | TLS API endpoint                                           |
+| SNS alarm topic    | AWS-managed key (`aws/sns`)            | Topic policy denies publishes without TLS                  |
+| NAT instance (EBS) | Encrypted root volume                  | n/a                                                        |
+| ALB listeners      | n/a                                    | `ELBSecurityPolicy-TLS13-1-2-Res-2021-06`, HTTP redirects  |
+| ALB to containers  | n/a                                    | HTTP inside the VPC (EXC-001)                              |
 
-The CDK does not provision customer-managed KMS keys. If you later need stricter key control, swap encryption keys to CMKs on individual constructs.
+No customer-managed KMS keys are created. Each resource accepts one if a stricter key policy is required later.
+
+## Credentials
+
+| Secret                                   | Used by                               | Rotation                                                               |
+| ---------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
+| `evtivity/<env>/db-master`               | Database job only                     | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
+| `evtivity/<env>/db-app`                  | Every service                         | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
+| `evtivity/<env>/cache-app`               | Every service                         | Custom function keeps current and pending passwords on the Valkey user |
+| `evtivity/<env>/jwt`                     | API                                   | Static (EXC-003)                                                       |
+| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, database job | Static (EXC-003)                                                       |
+| `evtivity/<env>/initial-admin`           | Database job                          | Static; the admin must change the password at first sign-in (EXC-003)  |
+
+How rotated credentials reach running tasks:
+
+- ECS reads secrets only when a task starts. The services receive `DB_*` and `REDIS_*` fields, and the image entrypoint builds `DATABASE_URL` and `REDIS_URL` from them.
+- Both rotation schemes keep the previous credential valid for one full interval: the database alternates between two roles, and the Valkey user holds two passwords.
+- An EventBridge Scheduler job forces a new deployment of each service every `ecs.redeployEveryDays` days (weekly by default). The config schema rejects a redeploy interval that is not shorter than the rotation interval.
+- Application privileges belong to the `evtivity_app_group` role. The database job creates it and grants default privileges for tables that migrations create, and the rotation copies the group membership to the clone role. Migrations run as the cluster owner, so every table has one owner.
 
 ## Network
 
-- VPC has public, private-with-egress, and isolated subnet tiers
-- Security groups follow least-access:
-  - ALB SG: 80/443 from `0.0.0.0/0`
-  - ECS SG: ingress only from ALB SG, on the specific container port per service
-  - Aurora SG: 5432 from ECS SG only
-  - Redis SG: 6379 from ECS SG only
-- VPC default security group has all rules removed (`restrictDefaultSecurityGroup: true`)
-- VPC flow logs enabled to CloudWatch
-- VPC endpoints for S3 (gateway) and Secrets Manager / SSM / CloudWatch Logs / ECR (interface) so AWS API traffic stays inside the VPC where possible
-- Aurora and Redis run in isolated subnets with no NAT route
+- Public, private, and isolated subnet tiers. Aurora and Valkey live in isolated subnets with no route to the internet.
+- Tasks run in private subnets with no public IP. Outbound traffic goes through fck-nat (dev, qa) or NAT gateways (prod).
+- Security groups:
+  - ALB: 443 and 80 from anywhere. Egress only to the tasks' service and health ports.
+  - Tasks: ingress from the ALB on service and health ports, and from other tasks on internal ports (Cloud Map).
+  - Aurora: 5432 from tasks and rotation functions only. Valkey: 6379 from the same.
+  - OCPP TLS NLB (optional): the TLS port from anywhere (EXC-006).
+- The VPC default security group has every rule removed. VPC flow logs capture all traffic.
+- The S3 gateway endpoint keeps bucket traffic off the NAT. Interface endpoints are optional per environment.
 
 ## Compute
 
-- ECS Fargate platform version `LATEST`
-- Task definitions use ARM64 / Linux
-- Container `readonlyRootFilesystem: true` by default (toggle per service via config if a service needs writable temp space)
-- IMDSv2 is enforced for any EC2 instances via context flag (`@aws-cdk/aws-ec2:requireImdsv2`)
-- Container Insights v2 (Enhanced) on the ECS cluster
-- Service deployment circuit breaker with rollback enabled
+- Fargate on ARM64, platform version `LATEST`, deployment circuit breaker with rollback.
+- Every container: read-only root filesystem with scratch volumes, not privileged, `initProcessEnabled`, awslogs logging, secrets only through the `secrets` field.
+- Node services run as uid 1000. The csms and portal nginx images run as root (EXC-002).
+- Container Insights is on for the cluster. ECS Exec is on in dev and qa only.
+- The NAT instance enforces IMDSv2 through the `@aws-cdk/aws-ec2:requireImdsv2` flag.
 
-## Application Load Balancer
+## Load balancing and WAF
 
-- Listener: HTTPS only with TLS 1.3 default policy (`SslPolicy.TLS13_RES`)
-- HTTP listener exists only to redirect to HTTPS with a 301
-- `dropInvalidHeaderFields: true` (FSBP `ELB.4`)
-- Access logs to a dedicated S3 bucket with lifecycle expiration
-- Deletion protection enabled in prod
-- WAFv2 web ACL associated with:
-  - AWS Managed: Common Rule Set
-  - AWS Managed: Known Bad Inputs
-  - AWS Managed: SQL Injection
-  - Rate-based rule (configurable per env)
-  - Optional geo block list
+- ALB drops invalid header fields, uses defensive desync mitigation, and writes access logs to the logs bucket.
+- Deletion protection is on in prod.
+- WAF (qa and prod) runs the AWS managed IP reputation, common, known bad inputs, and SQL injection rule groups, a per-IP rate limit, and an optional country block. `NoUserAgent_HEADER` and `SizeRestrictions_BODY` run in count mode because charging stations often omit a User-Agent and bulk imports exceed 8 KB. WAF logs go to CloudWatch with the `authorization` and `cookie` headers redacted.
 
-## Database
+## FSBP controls asserted by the tests
 
-- Aurora deletion protection enabled in prod
-- Backup retention: 1 day (dev), 3 days (qa), 14 days (prod)
-- IAM database authentication enabled
-- Automated minor version upgrades enabled
-- Postgres logs exported to CloudWatch
-- Performance Insights enabled in prod
-- Master credentials managed by RDS in Secrets Manager (auto-generated, rotatable)
+| Control                                      | How the stacks meet it                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| S3.1, S3.8                                   | Block Public Access on every bucket                                                                                      |
+| S3.5                                         | TLS-only bucket policy                                                                                                   |
+| S3.9                                         | App bucket access logs go to the logs bucket                                                                             |
+| S3.12                                        | ACLs disabled (BucketOwnerEnforced)                                                                                      |
+| S3.13                                        | Lifecycle rules on every bucket                                                                                          |
+| RDS.2, RDS.9, RDS.12, RDS.16, RDS.27, RDS.35 | Private instances, PostgreSQL log export, IAM auth, tags copied to snapshots, storage encryption, minor version upgrades |
+| RDS.6                                        | Enhanced monitoring on every instance                                                                                    |
+| RDS.7, RDS.15                                | Prod only: deletion protection, writer and reader across AZs (EXC-004 for dev and qa)                                    |
+| RDS.24                                       | Master username is `evtivity_admin`, not the engine default                                                              |
+| ElastiCache.1, .2, .4, .5, .7                | Automatic backups, minor version upgrades, encryption at rest and in transit, custom subnet group                        |
+| ElastiCache.3                                | Prod only: automatic failover (EXC-004 for dev and qa)                                                                   |
+| ECS.2, ECS.4, ECS.5, ECS.8, ECS.9, ECS.12    | No public IPs, not privileged, read-only root, no secrets in environment variables, logging, Container Insights          |
+| ECS.20                                       | Node services run as uid 1000 (EXC-002 for csms and portal)                                                              |
+| ELB.1, ELB.4, ELB.5, ELB.6                   | HTTP redirects to HTTPS, invalid headers dropped, access logs, prod deletion protection                                  |
+| WAF.11                                       | Web ACL logging where WAF is enabled                                                                                     |
+| EC2.2, EC2.6                                 | Default security group restricted, VPC flow logs                                                                         |
+| EC2.15                                       | Subnets do not assign public IPs on launch                                                                               |
+| SecretsManager.1                             | Database and cache credentials rotate (EXC-003 for the static keys)                                                      |
+| Lambda.1, Lambda.2                           | No public invoke permissions, current Node.js runtime                                                                    |
 
-## Cache
+## Tags
 
-- Redis transit encryption with AUTH token (auto-generated, stored in Secrets Manager)
-- Redis at-rest encryption
-- Multi-AZ + automatic failover in prod
-- Snapshot retention configurable per env
-
-## Secrets
-
-- All secrets in AWS Secrets Manager with paths `evtivity/<env>/<name>`
-- ECS tasks access secrets via task execution role; only the specific secret ARNs are granted, never `*`
-- Application code reads secrets from the env vars injected by ECS (no SDK calls at runtime)
-
-## IAM
-
-- One execution role per service (ECS task execution role for Secrets Manager / CloudWatch Logs / ECR pull)
-- One task role per service (extend per service for S3, SES, etc.)
-- No wildcards (`Action: "*"` or `Resource: "*"` outside Secrets Manager logical scope) — CDK `@aws-cdk/aws-iam:minimizePolicies` flag is on
-- No long-lived access keys; deploy uses GitHub OIDC short-lived role assumption
-
-## Defaults that satisfy specific controls
-
-| SH control | How this stack satisfies it |
-|---|---|
-| **EC2.6** VPC flow logging enabled in all VPCs | `FlowLog` to CloudWatch in every VPC |
-| **EC2.2** Default SG should not allow inbound/outbound | `restrictDefaultSecurityGroup: true` |
-| **EC2.8** EC2 instances should use IMDSv2 | Context flag `@aws-cdk/aws-ec2:requireImdsv2` |
-| **RDS.3** RDS encryption at rest | `storageEncrypted: true` on Aurora cluster |
-| **RDS.13** Automatic minor version upgrades | Configurable, default true |
-| **RDS.7** Deletion protection enabled | Required true in `prod.yaml` |
-| **ELB.1** HTTP requests should redirect to HTTPS | HTTP listener returns 301 to HTTPS |
-| **ELB.4** ALB should drop HTTP headers | `dropInvalidHeaderFields: true` |
-| **ELB.5** ALB logging enabled | `logAccessLogs(...)` |
-| **ELB.6** ALB deletion protection | Required true in `prod.yaml` |
-| **WAF.10** Web ACL should be in use | WAFv2 ACL associated to ALB |
-| **S3.1** Block all public access (account level) | `BlockPublicAccess.BLOCK_ALL` per bucket |
-| **S3.5** S3 buckets require TLS | `enforceSSL: true` |
-| **S3.4** Server-side encryption | `BucketEncryption.S3_MANAGED` |
-| **S3.14** Versioning enabled | `versioned: true` |
-| **ElastiCache.3** Automatic failover | Configurable; required true in prod |
-| **ElastiCache.4** Redis encryption at rest | `atRestEncryptionEnabled: true` |
-| **ElastiCache.5** Redis encryption in transit | `transitEncryptionEnabled: true` |
-| **ElastiCache.6** Redis AUTH token | `authToken` from Secrets Manager |
-| **ECS.1** Task definition should not pass secrets via plain env | All secrets injected via `secrets:` (Secrets Manager / SSM) |
-| **ECS.5** Container should be read-only root | `readonlyRootFilesystem: true` default |
-| **SecretsManager.1** Secrets should be rotated automatically | (manual rotation; flip on per secret as needed) |
-| **IAM.1** No `*:*` policies | Service-specific roles, no wildcards |
-
-## Things this stack does NOT do (by design)
-
-- **GuardDuty, CloudTrail org-level, Security Hub, AWS Config** — explicitly out of scope per project decision. Add them at the AWS Organization root if you want them.
-- **AWS Shield Advanced** — not provisioned. Default Shield Standard applies.
-- **VPC peering / Transit Gateway** — single-VPC design.
-- **Customer-managed KMS keys** — AWS-managed keys are used everywhere. Easy to swap if your compliance team requires CMKs.
-- **PCI DSS specific controls** — payment card data is handled by Stripe; the CSMS only stores tokenized handles.
-- **Backup vaults** — RDS automated backups + S3 versioning are sufficient for the failure modes covered. Add AWS Backup if you need cross-service backup orchestration.
+Every taggable resource carries `Environment`, `Service`, `Stack`, `Project`, `ManagedBy`, `Repository`, `CreatedDate`, and `UpdatedDate`. `CreatedDate` comes from the environment config and never changes. `UpdatedDate` is the day of the synth. ECS task definitions skip `UpdatedDate`, because a changed tag would create a new revision and restart every service on every deploy. Resources that AWS creates at run time (Lambda log groups of the hosted rotation functions, network interfaces) and resource types without tag support in CloudFormation (security group rules, routes, record sets, schedules) are not tagged.

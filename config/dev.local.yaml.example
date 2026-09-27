@@ -1,27 +1,21 @@
-# Local override for config/dev.yaml. Copy to dev.local.yaml (gitignored)
-# and put real values here. The loader deep-merges this on top of dev.yaml,
-# so list only the fields you want to change.
-#
-# Example: real AWS account, ECR-published image tag, optional features
-# enabled with secrets you have already created out of band.
+# Local override for config/dev.yaml. Copy to dev.local.yaml (gitignored).
+# The loader deep-merges this file over dev.yaml, so list only the fields
+# you change. Arrays replace the base value.
 
 account: "123456789012"
 
 domain:
   hostedZoneId: ZXXXXXXXXXXXXX
 
-services:
-  api:
-    imageTag: v0.1.5
+initialAdmin:
+  email: you@example.com
 
-# Uncomment to enable SP3 mTLS
+# Pin one service to a different image while testing a fix:
+# services:
+#   api:
+#     imageTag: 0.1.20-rc.1
+
+# SP3 mutual TLS for OCPP. The secret holds JSON keys cert, key, ca.
 # ocppTls:
 #   enabled: true
 #   secretName: evtivity/dev/ocpp-tls
-
-# Uncomment to enable Service Connect with mTLS
-# serviceConnect:
-#   enabled: true
-#   tls:
-#     enabled: true
-#     privateCaArn: arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/UUID

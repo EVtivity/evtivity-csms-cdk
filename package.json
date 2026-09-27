@@ -17,21 +17,26 @@
     "diff": "cdk diff",
     "deploy": "cdk deploy",
     "destroy": "cdk destroy",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.220.0",
-    "constructs": "^10.4.0",
-    "js-yaml": "^4.1.0",
-    "zod": "^4.0.0"
+    "aws-cdk-lib": "^2.271.0",
+    "cdk-nag": "^3.0.2",
+    "constructs": "^10.8.1",
+    "js-yaml": "^5.4.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@aws-sdk/client-ecs": "^3.1141.0",
+    "@aws-sdk/client-elasticache": "^3.1141.0",
+    "@aws-sdk/client-secrets-manager": "^3.1141.0",
     "@commitlint/cli": "^20.4.2",
     "@commitlint/config-conventional": "^20.4.2",
     "@eslint/js": "^9.30.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.0",
-    "aws-cdk": "^2.220.0",
+    "aws-cdk": "^2.1143.0",
     "eslint": "^9.30.0",
     "eslint-config-prettier": "^10.0.0",
     "husky": "^9.1.7",

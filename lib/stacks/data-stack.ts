@@ -1,150 +1,365 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { join } from 'node:path';
 import {
+  ArnFormat,
   Stack,
   type StackProps,
-  RemovalPolicy,
   Duration,
   CfnOutput,
   aws_ec2 as ec2,
   aws_rds as rds,
   aws_elasticache as elasticache,
-  aws_secretsmanager as secrets,
+  aws_iam as iam,
+  aws_lambda as lambda,
+  aws_lambda_nodejs as lambdaNodejs,
+  aws_logs as logs,
+  aws_secretsmanager as secretsmanager,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { Config } from '../config/index.js';
+import { namePrefix, removalPolicyOf, secretPrefix } from '../util.js';
 
 export interface DataStackProps extends StackProps {
   config: Config;
   vpc: ec2.IVpc;
-  auroraSg: ec2.ISecurityGroup;
-  redisSg: ec2.ISecurityGroup;
+  ecsSg: ec2.ISecurityGroup;
+  rotationSg: ec2.ISecurityGroup;
 }
 
+/** Characters left out of generated passwords so they survive URLs and shells. */
+const PASSWORD_EXCLUDE = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\,=^';
+
+// The cluster's owner role. Migrations run as this role so it owns every table.
+const MASTER_USERNAME = 'evtivity_admin';
+// Application login. Rotation alternates between this role and <name>_clone.
+const APP_USERNAME = 'evtivity_app';
+// Valkey user the application authenticates as.
+const CACHE_USERNAME = 'evtivity';
+
+/**
+ * Aurora PostgreSQL, ElastiCache Valkey, and the application secrets.
+ *
+ * Credential model:
+ * - `db-master`: cluster owner. Used only by the database job (migrations,
+ *   role bootstrap, seeds). Single-user rotation.
+ * - `db-app`: what the services use. Multi-user rotation alternates between
+ *   two roles that share one group role, so the previous credential stays
+ *   valid for one full interval while tasks restart.
+ * - `cache-app`: Valkey RBAC user. A custom rotation function keeps the
+ *   current and pending passwords active on the user at the same time.
+ * - `jwt`, `settings-encryption-key`, `initial-admin`: static (EXC-003).
+ */
 export class DataStack extends Stack {
   readonly cluster: rds.DatabaseCluster;
-  readonly databaseUrlSecret: secrets.Secret;
-  readonly redisUrlSecret: secrets.Secret;
-  readonly redisAuthSecret: secrets.Secret;
+  readonly masterSecret: rds.DatabaseSecret;
+  readonly appDbSecret: secretsmanager.ISecret;
+  readonly cacheSecret: secretsmanager.Secret;
+  readonly cacheHost: string;
+  readonly cachePort = 6379;
+  readonly jwtSecret: secretsmanager.Secret;
+  readonly settingsKeySecret: secretsmanager.Secret;
+  readonly initialAdminSecret: secretsmanager.Secret;
+  readonly databaseName = 'evtivity';
+  readonly masterUsername = MASTER_USERNAME;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
+    const { config, vpc, ecsSg, rotationSg } = props;
+    const prefix = namePrefix(config);
+    const sp = secretPrefix(config);
+    const a = config.aurora;
+    const rotationSubnets: ec2.SubnetSelection = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
+    const secretRemoval = removalPolicyOf(config.secrets.removal);
 
-    const { config, vpc, auroraSg, redisSg } = props;
-    const namePrefix = `evtivity/${config.env}`;
-    const isProd = config.env === 'prod';
+    const auroraSg = new ec2.SecurityGroup(this, 'AuroraSg', {
+      vpc,
+      description: 'EVtivity Aurora PostgreSQL',
+      allowAllOutbound: false,
+    });
+    const valkeySg = new ec2.SecurityGroup(this, 'ValkeySg', {
+      vpc,
+      description: 'EVtivity ElastiCache Valkey',
+      allowAllOutbound: false,
+    });
+    // Tasks and the database job connect as clients. Rotation functions
+    // connect to verify new credentials.
+    for (const source of [ecsSg, rotationSg]) {
+      auroraSg.addIngressRule(source, ec2.Port.tcp(5432), 'Postgres');
+      valkeySg.addIngressRule(source, ec2.Port.tcp(this.cachePort), 'Valkey');
+    }
 
-    // --- Aurora PostgreSQL Serverless v2 ---
+    // --- Aurora PostgreSQL ---
+
+    const major = a.engineVersion.split('.')[0] ?? a.engineVersion;
+    const engine = rds.DatabaseClusterEngine.auroraPostgres({
+      version: rds.AuroraPostgresEngineVersion.of(a.engineVersion, major),
+    });
+
+    const parameterGroup = new rds.ParameterGroup(this, 'ClusterParams', {
+      engine,
+      description: `${prefix} Aurora PostgreSQL`,
+      parameters: {
+        // Reject unencrypted client connections.
+        'rds.force_ssl': '1',
+      },
+    });
+
+    this.masterSecret = new rds.DatabaseSecret(this, 'MasterSecret', {
+      secretName: `${sp}/db-master`,
+      username: MASTER_USERNAME,
+      excludeCharacters: PASSWORD_EXCLUDE,
+    });
+
+    const instance = (name: string, isReader: boolean): rds.IClusterInstance =>
+      a.mode === 'serverless'
+        ? rds.ClusterInstance.serverlessV2(name, {
+            publiclyAccessible: false,
+            autoMinorVersionUpgrade: true,
+            scaleWithWriter: isReader,
+            enablePerformanceInsights: a.performanceInsights,
+          })
+        : rds.ClusterInstance.provisioned(name, {
+            instanceType: new ec2.InstanceType(a.instanceClass),
+            publiclyAccessible: false,
+            autoMinorVersionUpgrade: true,
+            enablePerformanceInsights: a.performanceInsights,
+          });
 
     this.cluster = new rds.DatabaseCluster(this, 'Aurora', {
-      engine: rds.DatabaseClusterEngine.auroraPostgres({
-        version: rds.AuroraPostgresEngineVersion.VER_16_6,
-      }),
-      defaultDatabaseName: 'evtivity',
-      credentials: rds.Credentials.fromGeneratedSecret('evtivity', {
-        secretName: `${namePrefix}/aurora-master`,
-      }),
+      engine,
+      clusterIdentifier: prefix,
+      credentials: rds.Credentials.fromSecret(this.masterSecret),
+      defaultDatabaseName: this.databaseName,
+      parameterGroup,
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [auroraSg],
-      writer: rds.ClusterInstance.serverlessV2('writer', {
-        autoMinorVersionUpgrade: config.aurora.autoMinorVersionUpgrade,
-        publiclyAccessible: false,
-        enablePerformanceInsights: isProd,
+      writer: instance('writer', false),
+      readers: Array.from({ length: a.readers }, (_, i) =>
+        instance(`reader${String(i + 1)}`, true),
+      ),
+      ...(a.mode === 'serverless' && {
+        serverlessV2MinCapacity: a.minCapacity,
+        serverlessV2MaxCapacity: a.maxCapacity,
+        ...(a.minCapacity === 0 && {
+          serverlessV2AutoPauseDuration: Duration.seconds(a.autoPauseSeconds),
+        }),
       }),
-      readers:
-        config.aurora.instanceCount > 1
-          ? Array.from({ length: config.aurora.instanceCount - 1 }, (_, i) =>
-              rds.ClusterInstance.serverlessV2(`reader${String(i + 1)}`, {
-                autoMinorVersionUpgrade: config.aurora.autoMinorVersionUpgrade,
-                publiclyAccessible: false,
-                scaleWithWriter: true,
-                enablePerformanceInsights: isProd,
-              }),
-            )
-          : [],
-      serverlessV2MinCapacity: config.aurora.minCapacity,
-      serverlessV2MaxCapacity: config.aurora.maxCapacity,
-      backup: { retention: Duration.days(config.aurora.backupRetentionDays) },
-      iamAuthentication: config.aurora.iamAuthentication,
-      storageEncrypted: true, // AWS-managed key
-      deletionProtection: config.aurora.deletionProtection,
-      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      backup: {
+        retention: Duration.days(a.backupRetentionDays),
+        ...(a.preferredBackupWindow != null && { preferredWindow: a.preferredBackupWindow }),
+      },
+      ...(a.preferredMaintenanceWindow != null && {
+        preferredMaintenanceWindow: a.preferredMaintenanceWindow,
+      }),
+      storageEncrypted: true,
+      copyTagsToSnapshot: true,
+      deletionProtection: a.deletionProtection,
+      removalPolicy: removalPolicyOf(a.removal),
+      iamAuthentication: a.iamAuthentication,
       cloudwatchLogsExports: ['postgresql'],
+      cloudwatchLogsRetention: config.logs.retentionDays,
+      enablePerformanceInsights: a.performanceInsights,
+      ...(a.monitoringIntervalSeconds > 0 && {
+        monitoringInterval: Duration.seconds(a.monitoringIntervalSeconds),
+      }),
     });
 
-    // Composed DATABASE_URL secret (postgres://user:pass@host:port/db).
-    this.databaseUrlSecret = new secrets.Secret(this, 'DatabaseUrl', {
-      secretName: `${namePrefix}/database-url`,
-      description: 'Composed Postgres connection URL for application use',
+    const appSecret = new rds.DatabaseSecret(this, 'AppDbSecret', {
+      secretName: `${sp}/db-app`,
+      username: APP_USERNAME,
+      masterSecret: this.masterSecret,
+      excludeCharacters: PASSWORD_EXCLUDE,
+    });
+    this.appDbSecret = appSecret.attach(this.cluster);
+
+    if (config.rotation.enabled) {
+      const automaticallyAfter = Duration.days(config.rotation.databaseDays);
+      this.cluster.addRotationSingleUser({
+        automaticallyAfter,
+        vpcSubnets: rotationSubnets,
+        securityGroup: rotationSg,
+        excludeCharacters: PASSWORD_EXCLUDE,
+      });
+      this.cluster.addRotationMultiUser('AppDbRotation', {
+        secret: this.appDbSecret,
+        automaticallyAfter,
+        vpcSubnets: rotationSubnets,
+        securityGroup: rotationSg,
+        excludeCharacters: PASSWORD_EXCLUDE,
+        // The app role does not exist until the database job creates it, and
+        // the rotation copies that role's memberships to the clone. Rotating
+        // before the job runs would give the clone no privileges.
+        rotateImmediatelyOnUpdate: false,
+      });
+    }
+
+    // --- ElastiCache Valkey ---
+
+    const cacheUserId = `${prefix}-app`;
+    const cacheUserArn = this.formatArn({
+      service: 'elasticache',
+      resource: 'user',
+      resourceName: cacheUserId,
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
+    this.cacheSecret = new secretsmanager.Secret(this, 'CacheSecret', {
+      secretName: `${sp}/cache-app`,
+      description: 'Valkey RBAC user for the EVtivity services',
       generateSecretString: {
-        secretStringTemplate: JSON.stringify({}),
-        generateStringKey: 'placeholder',
-      },
-    });
-
-    // Build URL from cluster endpoint + master secret. Done via SecretAttachment hooks below
-    // would require Lambda; instead we expose endpoint and master secret to consumers and let
-    // them compose the URL at runtime. To keep YAML simple, services reference the master
-    // secret JSON keys via secretsFromSecretsManager: e.g., DATABASE_HOST: <secret>:host.
-    // Override the placeholder once the cluster reports its endpoint:
-    new CfnOutput(this, 'AuroraEndpoint', {
-      value: this.cluster.clusterEndpoint.hostname,
-      description: 'Aurora cluster writer endpoint',
-    });
-    new CfnOutput(this, 'AuroraMasterSecretArn', {
-      value: this.cluster.secret?.secretArn ?? 'unknown',
-    });
-
-    // --- ElastiCache Redis ---
-
-    this.redisAuthSecret = new secrets.Secret(this, 'RedisAuth', {
-      secretName: `${namePrefix}/redis-auth-token`,
-      description: 'Redis AUTH token',
-      generateSecretString: {
-        excludeCharacters: '"@/\\\'',
+        secretStringTemplate: JSON.stringify({ username: CACHE_USERNAME, user_arn: cacheUserArn }),
+        generateStringKey: 'password',
         passwordLength: 64,
+        excludeCharacters: PASSWORD_EXCLUDE,
       },
     });
 
-    const subnetGroup = new elasticache.CfnSubnetGroup(this, 'RedisSubnetGroup', {
-      description: `EVtivity ${config.env} Redis`,
+    const cacheUser = new elasticache.CfnUser(this, 'CacheUser', {
+      userId: cacheUserId,
+      userName: CACHE_USERNAME,
+      engine: 'valkey',
+      accessString: 'on ~* &* +@all',
+      // Initial password only. After a rotation the user holds the current
+      // and pending passwords, set by the rotation function.
+      passwords: [this.cacheSecret.secretValueFromJson('password').unsafeUnwrap()],
+    });
+
+    const userGroup = new elasticache.CfnUserGroup(this, 'CacheUserGroup', {
+      userGroupId: `${prefix}-app`,
+      engine: 'valkey',
+      userIds: [cacheUserId],
+    });
+    userGroup.addResourceDependency(cacheUser);
+
+    const subnetGroup = new elasticache.CfnSubnetGroup(this, 'ValkeySubnets', {
+      cacheSubnetGroupName: prefix,
+      description: `${prefix} Valkey`,
       subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_ISOLATED }).subnetIds,
     });
 
-    const redis = new elasticache.CfnReplicationGroup(this, 'Redis', {
-      replicationGroupDescription: `EVtivity ${config.env} Redis`,
-      engine: 'redis',
-      cacheNodeType: config.redis.nodeType,
-      numCacheClusters: 1 + config.redis.replicas,
-      automaticFailoverEnabled: config.redis.automaticFailoverEnabled,
-      multiAzEnabled: config.redis.multiAz,
-      cacheSubnetGroupName: subnetGroup.ref,
-      securityGroupIds: [redisSg.securityGroupId],
-      atRestEncryptionEnabled: true, // AWS-managed key
-      transitEncryptionEnabled: true,
-      authToken: this.redisAuthSecret.secretValue.unsafeUnwrap(),
-      snapshotRetentionLimit: config.redis.snapshotRetentionLimit,
-      autoMinorVersionUpgrade: true,
-    });
-    redis.addDependency(subnetGroup);
-
-    // Composed REDIS_URL: rediss://:authToken@host:6379
-    this.redisUrlSecret = new secrets.Secret(this, 'RedisUrl', {
-      secretName: `${namePrefix}/redis-url`,
-      description: 'Composed Redis connection URL for application use',
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({}),
-        generateStringKey: 'placeholder',
+    const valkeyMajor = config.valkey.engineVersion.split('.')[0] ?? config.valkey.engineVersion;
+    const params = new elasticache.CfnParameterGroup(this, 'ValkeyParams', {
+      cacheParameterGroupFamily: `valkey${valkeyMajor}`,
+      description: `${prefix} Valkey`,
+      properties: {
+        ...config.valkey.parameters,
+        // BullMQ requires noeviction. Evicted keys silently lose queued jobs.
+        'maxmemory-policy': 'noeviction',
       },
     });
 
-    new CfnOutput(this, 'RedisPrimaryEndpoint', {
-      value: redis.attrPrimaryEndPointAddress,
+    const slowLog = new logs.LogGroup(this, 'ValkeySlowLog', {
+      logGroupName: `/evtivity/${config.env}/valkey-slow-log`,
+      retention: config.logs.retentionDays,
+      removalPolicy: removalPolicyOf(config.logs.removal),
     });
-    new CfnOutput(this, 'RedisAuthSecretArn', {
-      value: this.redisAuthSecret.secretArn,
+
+    const replicated = config.valkey.replicas > 0;
+    const valkey = new elasticache.CfnReplicationGroup(this, 'Valkey', {
+      replicationGroupId: prefix,
+      replicationGroupDescription: `${prefix} Valkey`,
+      engine: 'valkey',
+      engineVersion: config.valkey.engineVersion,
+      cacheNodeType: config.valkey.nodeType,
+      numCacheClusters: 1 + config.valkey.replicas,
+      automaticFailoverEnabled: replicated,
+      multiAzEnabled: replicated,
+      cacheSubnetGroupName: subnetGroup.ref,
+      cacheParameterGroupName: params.ref,
+      securityGroupIds: [valkeySg.securityGroupId],
+      port: this.cachePort,
+      atRestEncryptionEnabled: true,
+      transitEncryptionEnabled: true,
+      transitEncryptionMode: 'required',
+      userGroupIds: [userGroup.ref],
+      snapshotRetentionLimit: config.valkey.snapshotRetentionDays,
+      ...(config.valkey.snapshotWindow != null && { snapshotWindow: config.valkey.snapshotWindow }),
+      ...(config.valkey.maintenanceWindow != null && {
+        preferredMaintenanceWindow: config.valkey.maintenanceWindow,
+      }),
+      autoMinorVersionUpgrade: true,
+      logDeliveryConfigurations: [
+        {
+          logType: 'slow-log',
+          logFormat: 'json',
+          destinationType: 'cloudwatch-logs',
+          destinationDetails: { cloudWatchLogsDetails: { logGroup: slowLog.logGroupName } },
+        },
+      ],
     });
+    valkey.addResourceDependency(subnetGroup);
+    valkey.addResourceDependency(userGroup);
+    this.cacheHost = valkey.attrPrimaryEndPointAddress;
+
+    if (config.rotation.enabled) {
+      const fnLogs = new logs.LogGroup(this, 'CacheRotationLogs', {
+        logGroupName: `/evtivity/${config.env}/cache-rotation`,
+        retention: config.logs.retentionDays,
+        removalPolicy: removalPolicyOf(config.logs.removal),
+      });
+      const fn = new lambdaNodejs.NodejsFunction(this, 'CacheRotationFn', {
+        entry: join(import.meta.dirname, '../../lambda/valkey-rotation.ts'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_24_X,
+        architecture: lambda.Architecture.ARM_64,
+        // ModifyUser takes several minutes to propagate to the cache nodes.
+        timeout: Duration.minutes(12),
+        memorySize: 256,
+        vpc,
+        vpcSubnets: rotationSubnets,
+        securityGroups: [rotationSg],
+        logGroup: fnLogs,
+        environment: {
+          CACHE_USER_ID: cacheUserId,
+          CACHE_HOST: this.cacheHost,
+          CACHE_PORT: String(this.cachePort),
+        },
+        bundling: { minify: true, sourceMap: false, target: 'node24' },
+      });
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['elasticache:DescribeUsers', 'elasticache:ModifyUser'],
+          resources: [cacheUserArn],
+        }),
+      );
+      this.cacheSecret.addRotationSchedule('Rotation', {
+        rotationLambda: fn,
+        automaticallyAfter: Duration.days(config.rotation.cacheDays),
+        rotateImmediatelyOnUpdate: false,
+      });
+    }
+
+    // --- Application secrets ---
+
+    this.jwtSecret = new secretsmanager.Secret(this, 'JwtSecret', {
+      secretName: `${sp}/jwt`,
+      description: 'JWT and cookie signing key for the EVtivity API',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+      removalPolicy: secretRemoval,
+    });
+    this.settingsKeySecret = new secretsmanager.Secret(this, 'SettingsKeySecret', {
+      secretName: `${sp}/settings-encryption-key`,
+      description:
+        'SETTINGS_ENCRYPTION_KEY: encrypts *Enc settings at rest. Losing it loses those settings.',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+      removalPolicy: secretRemoval,
+    });
+    this.initialAdminSecret = new secretsmanager.Secret(this, 'InitialAdminSecret', {
+      secretName: `${sp}/initial-admin`,
+      description: 'First dashboard login. The admin must change the password on first sign-in.',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ email: config.initialAdmin.email }),
+        generateStringKey: 'password',
+        passwordLength: 24,
+        excludeCharacters: PASSWORD_EXCLUDE,
+      },
+      removalPolicy: secretRemoval,
+    });
+
+    new CfnOutput(this, 'AuroraEndpoint', { value: this.cluster.clusterEndpoint.hostname });
+    new CfnOutput(this, 'ValkeyEndpoint', { value: this.cacheHost });
+    new CfnOutput(this, 'InitialAdminSecretName', { value: this.initialAdminSecret.secretName });
   }
 }

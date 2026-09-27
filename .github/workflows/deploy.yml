@@ -33,6 +33,23 @@ jobs:
 
       - run: npm ci
 
+      # Account-specific values live in GitHub environment variables, not in
+      # the committed config.
+      - name: Write local config
+        env:
+          TARGET_ENV: ${{ inputs.env }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
+          INITIAL_ADMIN_EMAIL: ${{ vars.INITIAL_ADMIN_EMAIL }}
+        run: |
+          cat > "config/${TARGET_ENV}.local.yaml" <<EOF
+          account: "${AWS_ACCOUNT_ID}"
+          domain:
+            hostedZoneId: ${HOSTED_ZONE_ID}
+          initialAdmin:
+            email: ${INITIAL_ADMIN_EMAIL}
+          EOF
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -42,6 +59,8 @@ jobs:
       - run: npm run typecheck
 
       - run: npm run lint
+
+      - run: npm test
 
       - name: cdk diff
         env:
