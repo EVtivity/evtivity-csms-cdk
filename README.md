@@ -1,40 +1,6 @@
 # EVtivity CSMS - AWS CDK
 
-AWS CDK infrastructure for the EVtivity Charging Station Management System. Companion to `evtivity-csms-helm` (Kubernetes). This repo runs the same platform on AWS: ECS Fargate (ARM64), Aurora PostgreSQL, ElastiCache Valkey, an ALB with WAF, and an optional NLB for OCPP mutual TLS.
-
-## Layout
-
-```
-evtivity-csms-cdk/
-├── bin/app.ts                  # entry: loads config for --context env=<env>, runs cdk-nag
-├── lambda/
-│   ├── loki-forwarder.ts       # CloudWatch Logs subscription -> Loki push API
-│   ├── run-task.ts             # custom resource: runs the database job, waits for exit 0
-│   └── valkey-rotation.ts      # Secrets Manager rotation for the Valkey RBAC user
-├── lib/
-│   ├── build-app.ts            # creates every stack for one environment
-│   ├── catalog.ts              # fixed facts per service: image, ports, health, dependencies
-│   ├── config/                 # zod schema and YAML loader (<env>.yaml + <env>.local.yaml)
-│   ├── constructs/
-│   │   ├── app-service.ts      # one Fargate service with ALB rule, Cloud Map, autoscaling
-│   │   ├── db-job.ts           # migrations, roles, admin seed, settings as a deploy step
-│   │   ├── monitoring.ts       # CloudWatch dashboard and alarms
-│   │   ├── observability.ts    # Prometheus (AMP), Loki, Grafana, log forwarding
-│   │   └── secure-bucket.ts    # S3 with the Security Hub defaults
-│   ├── db-job-scripts.ts       # SQL and Node steps the database job runs
-│   ├── nag-suppressions.ts     # every accepted cdk-nag finding, with its reason
-│   ├── tagging.ts              # Environment, Service, Stack, CreatedDate, UpdatedDate tags
-│   └── stacks/                 # network, domain, storage, data, alb, app
-├── observability/grafana/      # dashboards and alert rules copied from the CSMS repo
-├── scripts/                    # changelog generator, observability sync
-├── test/compliance.test.ts     # synthesizes every env, asserts Security Hub controls
-├── config/                     # dev.yaml, qa.yaml, prod.yaml (+ gitignored *.local.yaml)
-└── docs/
-    ├── deployment.md
-    ├── security.md
-    ├── compliance-exceptions.md
-    └── cost-report.md
-```
+AWS CDK infrastructure for the EVtivity Charging Station Management System. Companion to `evtivity-csms-helm` (Kubernetes). This repo runs the same platform on AWS: ECS Fargate (ARM64), Aurora PostgreSQL, ElastiCache Valkey, an ALB with WAF, Prometheus, Loki, and Grafana, and an optional NLB for OCPP mutual TLS.
 
 ## Environments
 
@@ -44,42 +10,115 @@ evtivity-csms-cdk/
 | `qa`   | 1 task per service, on-demand            | Serverless v2, 0.5 to 4 ACU                   | t4g.micro, single node        | fck-nat         | on  |
 | `prod` | 2+ tasks per public service, autoscaling | Serverless v2, 1 to 16 ACU, writer and reader | t4g.medium, replica, failover | NAT gateway x 2 | on  |
 
-Every environment also runs the observability stack from the Helm chart (Prometheus, Loki, Grafana, with the same dashboards and alert rules). See [`docs/deployment.md`](docs/deployment.md#observability-observabilityenabled).
+Every environment runs the observability stack from the Helm chart (Prometheus, Loki, Grafana, with the same dashboards and alert rules). Monthly costs are in [`docs/cost-report.md`](docs/cost-report.md).
 
-Hostnames: `<service>.<env>.<apex>` for dev and qa, `<service>.<apex>` for prod. Monthly costs are in [`docs/cost-report.md`](docs/cost-report.md).
+## Deploy
 
-## Quick start
+### Prerequisites
+
+- AWS credentials for the target account (`aws sso login --profile <name>` or an access key profile)
+- Node.js 22 or later
+- A Route 53 public hosted zone for the domain (for example `evtivity.com`) in the same account
+- The CSMS release set in `image.tag` published on `ghcr.io/evtivity/evtivity-csms/*` (the CSMS release workflow updates `image.tag` in every config)
+
+### 1. Configure the environment
+
+`config/<env>.yaml` holds the committed settings. Account-specific values go in `config/<env>.local.yaml` (gitignored), which is merged on top:
+
+```bash
+cp config/dev.local.yaml.example config/dev.local.yaml
+```
+
+```yaml
+# config/dev.local.yaml
+account: '123456789012'
+domain:
+  hostedZoneId: Z0123456789ABCDEFGHIJ
+initialAdmin:
+  email: you@example.com
+observability:
+  grafana:
+    allowedCidrs: ['203.0.113.10/32'] # your office or VPN range
+```
+
+Hostnames are `<hostname>.<subdomain>.<apex>`: `domain.subdomain: dev` gives `csms.dev.evtivity.com`, and prod's empty subdomain gives `csms.evtivity.com`. Rename a service with `services.<name>.hostname`. Turn a service off with `services.<name>.enabled: false`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts).
+
+### 2. Check and deploy
 
 ```bash
 npm ci
-cp config/dev.local.yaml.example config/dev.local.yaml   # account, hosted zone id, admin email
 npm run typecheck && npm run lint && npm test
-npx cdk bootstrap aws://<account>/us-east-1              # once per account and region
-npm run synth -- --context env=dev
-npm run deploy -- --context env=dev --all
+
+npx cdk bootstrap aws://<account>/us-east-1 --profile <name>      # once per account and region
+npm run synth -- --context env=dev                                 # renders templates, runs cdk-nag
+npm run deploy -- --context env=dev --all --profile <name>
 ```
 
-The database job (migrations, grants, admin seed, settings) runs during the deploy. Services start only after it succeeds. See [`docs/deployment.md`](docs/deployment.md).
+A first deploy takes about 30 minutes, mostly Aurora and Valkey. During the App stack deploy a one-shot task runs migrations, creates the application database role, seeds the first admin, and writes settings. Services start only after it exits successfully. If it fails, CloudFormation rolls the App stack back and the error names the log stream.
 
-## Configuration
+To update: change the config (or let the release workflow change `image.tag`) and run the same deploy command. To deploy a single stack, name it, for example `Evtivity-Dev-App`.
 
-Everything is in `config/<env>.yaml` and validated at synth. Every service can be turned off (`services.<name>.enabled: false`), and the schema rejects combinations that cannot work (for example csms without api). `config/<env>.local.yaml` holds account ids and personal overrides and is deep-merged on top.
+## View the services
 
-The CSMS release workflow sets `image.tag` in all three configs on every tag. Synth needs no AWS credentials: availability zones and the fck-nat AMI are pinned in config.
+### URLs
 
-## Security
+The App stack prints them as outputs:
 
-- cdk-nag (AWS Solutions) runs on every synth. Unacknowledged findings fail it.
-- `npm test` asserts the AWS Foundational Security Best Practices controls for dev, qa, and prod.
-- Database and Valkey credentials rotate automatically. Services are redeployed weekly to pick them up.
-- Accepted gaps are in [`docs/compliance-exceptions.md`](docs/compliance-exceptions.md). Details in [`docs/security.md`](docs/security.md).
+```bash
+aws cloudformation describe-stacks --stack-name Evtivity-Dev-App --profile <name> \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey,'Url')].[OutputKey,OutputValue]" --output table
+```
 
-## CI
+| Service         | dev URL                                               |
+| --------------- | ----------------------------------------------------- |
+| Dashboard       | https://csms.dev.evtivity.com                         |
+| Driver portal   | https://portal.dev.evtivity.com                       |
+| API             | https://api.dev.evtivity.com (health: `/v1/health`)   |
+| OCPP (stations) | wss://ocpp.dev.evtivity.com/<stationId>               |
+| OCPI            | https://ocpi.dev.evtivity.com                         |
+| Grafana         | https://grafana.dev.evtivity.com (allowed CIDRs only) |
 
-- `.github/workflows/ci.yml` (pull requests): typecheck, lint, tests, and synth for every environment.
-- `.github/workflows/deploy.yml` (manual): OIDC deploy of one environment. Prod requires reviewers.
+### Sign in
 
-Commits follow Conventional Commits. The husky `commit-msg` hook runs commitlint.
+The first dashboard admin is `initialAdmin.email`. The password is generated at deploy time, and the dashboard asks for a new one at first sign-in:
+
+```bash
+aws secretsmanager get-secret-value --secret-id evtivity/dev/initial-admin \
+  --query SecretString --output text --profile <name>
+```
+
+Grafana's user is `admin`. Its password is in `evtivity/dev/grafana-admin`.
+
+### Logs and status
+
+```bash
+# Service logs (api, ocpp, ocpi, csms, portal, worker, css, db-job, grafana, loki, prometheus)
+aws logs tail /evtivity/dev/api --follow --profile <name>
+
+# Running tasks and deployment state
+aws ecs describe-services --cluster evtivity-dev --services evtivity-dev-api \
+  --query 'services[0].[runningCount,desiredCount,deployments[0].rolloutState]' --profile <name>
+
+# Shell into a task (dev and qa have ECS Exec enabled)
+aws ecs execute-command --cluster evtivity-dev --task <task-id> --container app \
+  --interactive --command sh --profile <name>
+```
+
+In Grafana, the EVtivity folder holds the system metrics, business metrics, logs, and alerts dashboards. Alerts publish to the `evtivity-dev-alerts` SNS topic. Set `monitoring.alarmEmail` to receive them by email.
+
+### Stop or remove an environment
+
+- Pause: set `desiredCount: 0` on every service and deploy. Aurora pauses when idle and compute stops billing.
+- Remove: `npm run destroy -- --context env=dev --all --profile <name>`. The dev and qa settings delete all data. Prod retains its database snapshot, buckets, logs, and secrets.
+
+## More
+
+- [`docs/deployment.md`](docs/deployment.md): configuration reference, rotation, observability, OCPP TLS, GitHub Actions
+- [`docs/security.md`](docs/security.md): controls, credentials, network, tags
+- [`docs/compliance-exceptions.md`](docs/compliance-exceptions.md): accepted Security Hub gaps
+- [`docs/cost-report.md`](docs/cost-report.md): monthly cost per environment
+
+cdk-nag runs on every synth and `npm test` asserts the Security Hub controls for every environment. Commits follow Conventional Commits.
 
 ## License
 
