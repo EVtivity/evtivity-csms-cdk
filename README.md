@@ -8,6 +8,7 @@ AWS CDK infrastructure for the EVtivity Charging Station Management System. Comp
 evtivity-csms-cdk/
 ├── bin/app.ts                  # entry: loads config for --context env=<env>, runs cdk-nag
 ├── lambda/
+│   ├── loki-forwarder.ts       # CloudWatch Logs subscription -> Loki push API
 │   ├── run-task.ts             # custom resource: runs the database job, waits for exit 0
 │   └── valkey-rotation.ts      # Secrets Manager rotation for the Valkey RBAC user
 ├── lib/
@@ -17,12 +18,15 @@ evtivity-csms-cdk/
 │   ├── constructs/
 │   │   ├── app-service.ts      # one Fargate service with ALB rule, Cloud Map, autoscaling
 │   │   ├── db-job.ts           # migrations, roles, admin seed, settings as a deploy step
-│   │   ├── monitoring.ts       # dashboard and alarms
+│   │   ├── monitoring.ts       # CloudWatch dashboard and alarms
+│   │   ├── observability.ts    # Prometheus (AMP), Loki, Grafana, log forwarding
 │   │   └── secure-bucket.ts    # S3 with the Security Hub defaults
 │   ├── db-job-scripts.ts       # SQL and Node steps the database job runs
 │   ├── nag-suppressions.ts     # every accepted cdk-nag finding, with its reason
 │   ├── tagging.ts              # Environment, Service, Stack, CreatedDate, UpdatedDate tags
 │   └── stacks/                 # network, domain, storage, data, alb, app
+├── observability/grafana/      # dashboards and alert rules copied from the CSMS repo
+├── scripts/                    # changelog generator, observability sync
 ├── test/compliance.test.ts     # synthesizes every env, asserts Security Hub controls
 ├── config/                     # dev.yaml, qa.yaml, prod.yaml (+ gitignored *.local.yaml)
 └── docs/
@@ -39,6 +43,8 @@ evtivity-csms-cdk/
 | `dev`  | 1 task per service, Fargate Spot         | Serverless v2, 0 to 2 ACU, pauses when idle   | t4g.micro, single node        | fck-nat         | off |
 | `qa`   | 1 task per service, on-demand            | Serverless v2, 0.5 to 4 ACU                   | t4g.micro, single node        | fck-nat         | on  |
 | `prod` | 2+ tasks per public service, autoscaling | Serverless v2, 1 to 16 ACU, writer and reader | t4g.medium, replica, failover | NAT gateway x 2 | on  |
+
+Every environment also runs the observability stack from the Helm chart (Prometheus, Loki, Grafana, with the same dashboards and alert rules). See [`docs/deployment.md`](docs/deployment.md#observability-observabilityenabled).
 
 Hostnames: `<service>.<env>.<apex>` for dev and qa, `<service>.<apex>` for prod. Monthly costs are in [`docs/cost-report.md`](docs/cost-report.md).
 

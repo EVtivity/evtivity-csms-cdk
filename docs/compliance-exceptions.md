@@ -60,12 +60,13 @@ Each exception lists the control, the affected resources and environments, why t
 
 **Controls:** SecretsManager.1 (automatic rotation enabled) and SecretsManager.4 (rotated within the configured period).
 
-**Affected resources:** `evtivity/<env>/jwt`, `evtivity/<env>/settings-encryption-key`, and `evtivity/<env>/initial-admin`, in all environments. The database and cache credentials rotate and are not part of this exception.
+**Affected resources:** `evtivity/<env>/jwt`, `evtivity/<env>/settings-encryption-key`, `evtivity/<env>/initial-admin`, and `evtivity/<env>/grafana-admin` (when observability is enabled), in all environments. The database and cache credentials rotate and are not part of this exception.
 
 **Why it is not met:**
 
 - The JWT key signs access and refresh tokens and cookies. The API verifies against one key, so rotating it signs out every operator and driver at once.
 - The settings encryption key encrypts every `*Enc` setting (Stripe, SMTP, Twilio, S3, and other credentials) with AES-256-GCM. Rotating it without re-encrypting those rows makes them unreadable. The application has no re-encryption path yet.
+- Grafana reads its admin password from the environment only when its database is first created. After that the password lives in the Grafana database, so rotating the secret would not change the working password. Operators change it in Grafana.
 - The initial admin secret is used once. The seeded user must change the password at first sign-in, after which the secret no longer grants access.
 
 **Compensating controls:**

@@ -6,9 +6,7 @@ import {
   aws_cloudwatch as cw,
   aws_cloudwatch_actions as cwActions,
   aws_elasticloadbalancingv2 as elbv2,
-  aws_kms as kms,
   aws_sns as sns,
-  aws_sns_subscriptions as subs,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import type { ServiceName } from '../catalog.js';
@@ -21,12 +19,12 @@ export interface MonitoringProps {
   clusterName: string;
   alb: elbv2.IApplicationLoadBalancer;
   services: Partial<Record<ServiceName, AppService>>;
+  /** Alarm notifications. Shared with Grafana alerting. */
+  alertTopic: sns.ITopic;
 }
 
 /** CloudWatch dashboard and alarms for the environment. */
 export class Monitoring extends Construct {
-  readonly topic?: sns.Topic;
-
   constructor(scope: Construct, id: string, props: MonitoringProps) {
     super(scope, id);
     const { config, clusterName, services } = props;
@@ -120,15 +118,7 @@ export class Monitoring extends Construct {
 
     if (!config.monitoring.alarms) return;
 
-    this.topic = new sns.Topic(this, 'Alarms', {
-      topicName: `${prefix}-alarms`,
-      masterKey: kms.Alias.fromAliasName(this, 'SnsKey', 'alias/aws/sns'),
-      enforceSSL: true,
-    });
-    if (config.monitoring.alarmEmail != null) {
-      this.topic.addSubscription(new subs.EmailSubscription(config.monitoring.alarmEmail));
-    }
-    const action = new cwActions.SnsAction(this.topic);
+    const action = new cwActions.SnsAction(props.alertTopic);
     const alarm = (
       idSuffix: string,
       metric: cw.IMetric,

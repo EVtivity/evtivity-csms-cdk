@@ -101,6 +101,27 @@ Same secret shape, for the charging station simulator to test security profile 3
 
 Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 0 and 1. See EXC-007 before enabling.
 
+## Observability: `observability.enabled`
+
+Runs the same monitoring stack as the Helm chart, with the same dashboards (system metrics, business metrics, logs, alerts) and the same 12 Grafana alert rules:
+
+| Component  | How it runs on AWS                                                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prometheus | Agent mode on Fargate. Scrapes the API's `/metrics` (port 9091) through Cloud Map and remote-writes to Amazon Managed Service for Prometheus.                                                                      |
+| Loki       | Single binary on Fargate. Chunks and indexes in the `loki` bucket, WAL on EFS, retention `observability.loki.retentionDays`.                                                                                       |
+| Log intake | A Lambda subscribed to each service's CloudWatch log group pushes events to Loki with the `service` label the logs dashboard filters on.                                                                           |
+| Grafana    | Fargate with its database on EFS. Provisioned at start from the `grafana` bucket: dashboards and alert rules from the CSMS repo, generated datasources (AMP through the task role, Loki) and an SNS contact point. |
+| Alerts     | Grafana publishes to the environment's `evtivity-<env>-alerts` SNS topic, shared with the CloudWatch alarms. Set `monitoring.alarmEmail` to subscribe an address (the recipient must confirm).                     |
+
+Access: `grafana.<zone>` exists only when `observability.grafana.allowedCidrs` lists at least one CIDR, and the ALB forwards only requests from those ranges. Put office or VPN ranges in `config/<env>.local.yaml`. Sign in as `admin` with the password from `evtivity/<env>/grafana-admin`. With no CIDRs, reach Grafana through ECS Exec port forwarding:
+
+```bash
+aws ssm start-session --target ecs:evtivity-dev_<task-id>_<runtime-id> \
+  --document-name AWS-StartPortForwardingSession --parameters portNumber=3000,localPortNumber=3000
+```
+
+Dashboard and alert changes: edit them in `evtivity-csms-private/prometheus/grafana/`, then run `./scripts/sync-observability.sh` here and deploy. The deploy uploads the files and restarts Grafana when their content changed.
+
 ## Updating the fck-nat AMI
 
 `vpc.nat.amiIds` pins the AMI per region. Find the latest:

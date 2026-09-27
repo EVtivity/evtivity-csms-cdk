@@ -33,6 +33,7 @@ No customer-managed KMS keys are created. Each resource accepts one if a stricte
 | `evtivity/<env>/jwt`                     | API                                   | Static (EXC-003)                                                       |
 | `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, database job | Static (EXC-003)                                                       |
 | `evtivity/<env>/initial-admin`           | Database job                          | Static; the admin must change the password at first sign-in (EXC-003)  |
+| `evtivity/<env>/grafana-admin`           | Grafana                               | Static (EXC-003)                                                       |
 
 How rotated credentials reach running tasks:
 
@@ -90,6 +91,14 @@ How rotated credentials reach running tasks:
 | EC2.15                                       | Subnets do not assign public IPs on launch                                                                               |
 | SecretsManager.1                             | Database and cache credentials rotate (EXC-003 for the static keys)                                                      |
 | Lambda.1, Lambda.2                           | No public invoke permissions, current Node.js runtime                                                                    |
+
+## Observability
+
+- Grafana, Loki, and Prometheus run as their images' non-root users (472, 10001, 65534) with read-only root filesystems. Grafana's provisioner runs as the Grafana user too.
+- Loki and Grafana state lives on an encrypted EFS file system with automatic backups (EFS.1, EFS.2). Each service mounts its own access point, which forces its POSIX user and root directory (EFS.3, EFS.4). Mounts use TLS and IAM authorization.
+- Grafana is public only for `observability.grafana.allowedCidrs`, behind the ALB (and WAF where enabled), with anonymous access and sign-up disabled.
+- Grafana reads Amazon Managed Service for Prometheus and publishes alerts to SNS through its task role. No AWS keys are stored.
+- Loki has its own bucket, so it cannot modify the Grafana provisioning files.
 
 ## Tags
 

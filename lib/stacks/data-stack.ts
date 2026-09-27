@@ -177,18 +177,30 @@ export class DataStack extends Stack {
 
     if (config.rotation.enabled) {
       const automaticallyAfter = Duration.days(config.rotation.databaseDays);
-      this.cluster.addRotationSingleUser({
-        automaticallyAfter,
+      // Secrets Manager hosted rotation: AWS deploys and maintains the
+      // rotation function through the AWS::SecretsManager transform.
+      const clusterSecret = this.cluster.secret;
+      if (clusterSecret == null) throw new Error('Aurora cluster has no attached master secret');
+      const network = {
+        vpc,
         vpcSubnets: rotationSubnets,
-        securityGroup: rotationSg,
+        securityGroups: [rotationSg],
         excludeCharacters: PASSWORD_EXCLUDE,
+      };
+      clusterSecret.addRotationSchedule('MasterRotation', {
+        hostedRotation: secretsmanager.HostedRotation.postgreSqlSingleUser({
+          ...network,
+          functionName: `${prefix}-db-master-rotation`,
+        }),
+        automaticallyAfter,
       });
-      this.cluster.addRotationMultiUser('AppDbRotation', {
-        secret: this.appDbSecret,
+      this.appDbSecret.addRotationSchedule('AppDbRotation', {
+        hostedRotation: secretsmanager.HostedRotation.postgreSqlMultiUser({
+          ...network,
+          masterSecret: clusterSecret,
+          functionName: `${prefix}-db-app-rotation`,
+        }),
         automaticallyAfter,
-        vpcSubnets: rotationSubnets,
-        securityGroup: rotationSg,
-        excludeCharacters: PASSWORD_EXCLUDE,
         // The app role does not exist until the database job creates it, and
         // the rotation copies that role's memberships to the clone. Rotating
         // before the job runs would give the clone no privileges.

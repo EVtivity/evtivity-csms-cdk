@@ -167,3 +167,10 @@ export function albPorts(name: ServiceName): number[] {
   if (spec.health != null) ports.add(spec.health.port);
   return [...ports];
 }
+
+/** Prometheus metrics endpoint of the API (`METRICS_PORT`). */
+export const API_METRICS_PORT = 9091;
+/** Grafana HTTP port. */
+export const GRAFANA_PORT = 3000;
+/** Loki HTTP port (push and query). */
+export const LOKI_PORT = 3100;

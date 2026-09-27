@@ -312,6 +312,49 @@ export const configSchema = z
       })
       .prefault({}),
 
+    // Prometheus, Grafana, and Loki with the same dashboards and alert rules
+    // as the Helm chart. Prometheus runs in agent mode and writes to Amazon
+    // Managed Service for Prometheus, Loki stores chunks in S3, and a Lambda
+    // forwards the services' CloudWatch logs to Loki.
+    observability: z
+      .object({
+        enabled: z.boolean().default(false),
+        grafana: z
+          .object({
+            version: z.string().default('11.5.2'),
+            hostname: z
+              .string()
+              .regex(/^[a-z0-9-]+$/)
+              .default('grafana'),
+            // Source CIDRs allowed to reach grafana.<zone>. Empty means no
+            // public access: reach Grafana through ECS Exec port forwarding.
+            allowedCidrs: z.array(z.cidrv4()).max(5).default([]),
+            cpu: fargateCpu.default(256),
+            memoryMiB: z.number().int().min(512).default(512),
+            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+          })
+          .prefault({}),
+        prometheus: z
+          .object({
+            version: z.string().default('v3.2.1'),
+            scrapeIntervalSeconds: z.number().int().min(10).default(60),
+            cpu: fargateCpu.default(256),
+            memoryMiB: z.number().int().min(512).default(512),
+            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+          })
+          .prefault({}),
+        loki: z
+          .object({
+            version: z.string().default('3.4.2'),
+            retentionDays: z.number().int().min(1).default(30),
+            cpu: fargateCpu.default(256),
+            memoryMiB: z.number().int().min(512).default(1024),
+            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
+
     services: servicesSchema,
   })
   .superRefine((c, ctx) => {

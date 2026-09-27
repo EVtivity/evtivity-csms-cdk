@@ -11,10 +11,14 @@ import {
   aws_ecs as ecs,
   aws_elasticloadbalancingv2 as elbv2,
   aws_iam as iam,
+  aws_kms as kms,
+  aws_logs as logs,
   aws_route53 as route53,
   aws_route53_targets as targets,
   aws_scheduler as scheduler,
   aws_secretsmanager as secretsmanager,
+  aws_sns as sns,
+  aws_sns_subscriptions as subs,
   aws_servicediscovery as servicediscovery,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
@@ -23,6 +27,7 @@ import type { Config } from '../config/index.js';
 import { AppService } from '../constructs/app-service.js';
 import { DbJob } from '../constructs/db-job.js';
 import { Monitoring } from '../constructs/monitoring.js';
+import { Observability } from '../constructs/observability.js';
 import { namePrefix, serviceHost, serviceUrl, zoneApex } from '../util.js';
 
 export interface AppStackProps extends StackProps {
@@ -328,13 +333,66 @@ export class AppStack extends Stack {
 
     if (config.ecs.redeployEveryDays > 0) this.addScheduledRedeploys(config);
 
+    // One topic for CloudWatch alarms and Grafana alerts. Email
+    // subscriptions need a confirmation click before they deliver.
+    const alertTopic = new sns.Topic(this, 'Alerts', {
+      topicName: `${prefix}-alerts`,
+      masterKey: kms.Alias.fromAliasName(this, 'SnsKey', 'alias/aws/sns'),
+      enforceSSL: true,
+    });
+    if (config.monitoring.alarmEmail != null) {
+      alertTopic.addSubscription(new subs.EmailSubscription(config.monitoring.alarmEmail));
+    }
+
     if (config.monitoring.dashboard || config.monitoring.alarms) {
       new Monitoring(this, 'Monitoring', {
         config,
         clusterName: this.cluster.clusterName,
         alb: props.alb,
         services: this.services,
+        alertTopic,
       });
+    }
+
+    if (config.observability.enabled) {
+      // Loki `service` labels match the Helm/compose names the logs
+      // dashboard filters on (the simulator is `simulator`, Valkey `redis`).
+      const lokiLabels: Partial<Record<ServiceName, string>> = {
+        css: 'simulator',
+        ocpiSim: 'ocpi-simulator',
+        ocpiCpoSim: 'ocpi-cpo-simulator',
+      };
+      const logGroups: Record<string, logs.ILogGroup> = {
+        migrate: dbJob.logGroup,
+        postgres: logs.LogGroup.fromLogGroupName(
+          this,
+          'PostgresLogs',
+          `/aws/rds/cluster/${prefix}/postgresql`,
+        ),
+        redis: logs.LogGroup.fromLogGroupName(
+          this,
+          'ValkeyLogs',
+          `/evtivity/${config.env}/valkey-slow-log`,
+        ),
+      };
+      for (const [name, svc] of Object.entries(this.services) as [ServiceName, AppService][]) {
+        logGroups[lokiLabels[name] ?? name] = svc.logGroup;
+      }
+      const observability = new Observability(this, 'Observability', {
+        config,
+        cluster: this.cluster,
+        vpc,
+        securityGroup: ecsSg,
+        namespace,
+        alb: props.alb,
+        httpsListener: props.httpsListener,
+        hostedZone: props.hostedZone,
+        alertTopic,
+        logGroups,
+      });
+      if (observability.grafanaHostPublic) {
+        new CfnOutput(this, 'Url-grafana', { value: `https://${observability.grafanaHost}` });
+      }
     }
 
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });

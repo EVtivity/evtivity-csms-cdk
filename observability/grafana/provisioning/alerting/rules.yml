@@ -1,0 +1,572 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: system-alerts
+    folder: EVtivity Alerts
+    interval: 1m
+    rules:
+      - uid: sys-high-error-rate
+        title: High Error Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) * 100'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 5
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'API 5xx error rate above 5%'
+        labels:
+          severity: critical
+        noDataState: OK
+        execErrState: Error
+
+      - uid: sys-high-request-latency
+        title: High Request Latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 2
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'API p95 latency above 2 seconds'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: sys-high-memory-usage
+        title: High Memory Usage
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'process_resident_memory_bytes / 1024 / 1024'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 450
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'API memory usage above 450MB'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: sys-ocpp-ping-success-low
+        title: OCPP Ping Success Rate Low
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'ocpp_ping_success_rate'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 90
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'WebSocket ping success rate below 90%'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: sys-ocpp-no-connected-stations
+        title: OCPP No Connected Stations
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'ocpp_connected_stations'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 1
+                  operator:
+                    type: and
+              refId: C
+        for: 10m
+        annotations:
+          summary: 'No stations connected for 10 minutes'
+        labels:
+          severity: critical
+        noDataState: OK
+        execErrState: Error
+
+      - uid: sys-high-active-http-requests
+        title: High Active HTTP Requests
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'http_active_requests'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 100
+                  operator:
+                    type: and
+              refId: C
+        for: 2m
+        annotations:
+          summary: 'More than 100 concurrent requests'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: business-alerts
+    folder: EVtivity Alerts
+    interval: 1m
+    rules:
+      - uid: biz-all-stations-offline
+        title: All Stations Offline
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(stations_total{is_online="true"})'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 1
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'No online stations'
+        labels:
+          severity: critical
+        noDataState: OK
+        execErrState: Error
+
+      - uid: biz-high-faulted-connectors
+        title: High Faulted Connectors
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sum(connectors_total{status="faulted"})'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 10
+                  operator:
+                    type: and
+              refId: C
+        for: 5m
+        annotations:
+          summary: 'More than 10 faulted connectors'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: biz-support-cases-spike
+        title: Support Cases Spike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'support_cases_open'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 20
+                  operator:
+                    type: and
+              refId: C
+        for: 10m
+        annotations:
+          summary: 'More than 20 open support cases'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: biz-no-active-sessions
+        title: No Active Sessions
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'sessions_active'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 1
+                  operator:
+                    type: and
+              refId: C
+        for: 30m
+        annotations:
+          summary: 'No active charging sessions for 30 minutes'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: biz-high-idle-sessions
+        title: High Idle Sessions
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'idle_sessions_active'
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 20
+                  operator:
+                    type: and
+              refId: C
+        for: 10m
+        annotations:
+          summary: 'More than 20 idle sessions'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error
+
+      - uid: biz-revenue-stalled
+        title: Revenue Stalled
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 7200
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: 'delta(revenue_cents_total[1h])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 7200
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 7200
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 0.001
+                  operator:
+                    type: and
+              refId: C
+        for: 2h
+        annotations:
+          summary: 'No revenue for 2 hours'
+        labels:
+          severity: warning
+        noDataState: OK
+        execErrState: Error

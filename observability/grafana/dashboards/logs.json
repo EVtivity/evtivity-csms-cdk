@@ -1,0 +1,525 @@
+{
+  "title": "Logs",
+  "uid": "logs",
+  "tags": ["logs", "loki"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Errors (All Services)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "All Errors",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "id": 2,
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{service=~\".+\", service_name!~\"loki|grafana|alloy\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\" != \"bf-error-rate\" != \"faultCode\"",
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "maxDataPoints": 100
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "row",
+      "title": "API",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "id": 3,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "API",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+          "id": 4,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"api\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "API All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+          "id": 5,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"api\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "OCPP",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "id": 6,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "OCPP",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+          "id": 7,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"ocpp\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "OCPP All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 23 },
+          "id": 8,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"ocpp\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Worker",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "id": 9,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "Worker",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 14 },
+          "id": 10,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"worker\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "Worker All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+          "id": 11,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"worker\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Simulator",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 12,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "Simulator",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 15 },
+          "id": 13,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"simulator\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "Simulator All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 25 },
+          "id": 14,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"simulator\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "PostgreSQL",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 15,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "PostgreSQL",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+          "id": 16,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"postgres\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "PostgreSQL All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
+          "id": 17,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"postgres\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Redis",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "id": 18,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "Redis",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 17 },
+          "id": 19,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"redis\"} |~ \"(?i)error|fatal|panic\" != \"faultCode\" != \"bf-error-rate\" != \"faultCode\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "Redis All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 27 },
+          "id": 20,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"redis\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "CSMS (Nginx)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "id": 21,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "CSMS",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 18 },
+          "id": 22,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"csms\"} |~ \"(?i)error|fatal|\\\" [45]\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "CSMS All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 28 },
+          "id": 23,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"csms\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Portal (Nginx)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 24,
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "Portal",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 19 },
+          "id": 25,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"portal\"} |~ \"(?i)error|fatal|\\\" [45]\"",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        },
+        {
+          "type": "logs",
+          "title": "Portal All Logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 29 },
+          "id": 26,
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service=\"portal\"}",
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "maxDataPoints": 100
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    }
+  ]
+}

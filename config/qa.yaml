@@ -79,6 +79,15 @@ appSettings: {}
 monitoring:
   dashboard: true
   alarms: true
+observability:
+  enabled: true
+  grafana:
+    # grafana.<zone> accepts only these CIDRs. Empty keeps Grafana off the
+    # internet (reach it through ECS Exec). Set office or VPN ranges in
+    # config/<env>.local.yaml.
+    allowedCidrs: []
+  loki:
+    retentionDays: 30
 services:
   api:
     enabled: true

@@ -74,7 +74,8 @@ for (const env of ENVS) {
 
     void it('S3: blocks public access, encrypts, requires TLS, and has lifecycle rules (S3.1/5/8/13)', () => {
       const buckets = ofType(resources, 'AWS::S3::Bucket');
-      assert.equal(buckets.length, 2);
+      // logs and app, plus grafana and loki with observability.
+      assert.equal(buckets.length, config.observability.enabled ? 4 : 2);
       for (const b of buckets) {
         assert.deepEqual(b['PublicAccessBlockConfiguration'], {
           BlockPublicAcls: true,
@@ -168,15 +169,62 @@ for (const env of ENVS) {
           }
         }
       }
-      // EXC-002: only the nginx images run without a user.
-      const families = ofType(resources, 'AWS::ECS::TaskDefinition').map((td) => ({
-        family: String(td['Family']),
-        user: (td['ContainerDefinitions'] as Container[])[0]?.User,
-      }));
-      for (const { family, user } of families) {
-        if (/-(csms|portal)$/.test(family)) assert.equal(user, undefined, `${family} (EXC-002)`);
-        else assert.equal(user, '1000', `${family} runs as node`);
+      // EXC-002: only the nginx images run without a user. Every other
+      // container, including init containers, runs as a non-root user.
+      const expectedUser: Record<string, string> = {
+        grafana: '472:0',
+        provision: '472:0',
+        prometheus: '65534:65534',
+        loki: '10001:10001',
+      };
+      for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
+        const family = String(td['Family']);
+        for (const c of td['ContainerDefinitions'] as Container[]) {
+          if (/-(csms|portal)$/.test(family)) {
+            assert.equal(c.User, undefined, `${family} (EXC-002)`);
+          } else {
+            assert.equal(
+              c.User,
+              expectedUser[c.Name] ?? '1000',
+              `${family}/${c.Name} runs as non-root`,
+            );
+          }
+        }
       }
+    });
+
+    void it('Observability: AMP, encrypted EFS with backups, scoped Grafana access, log forwarding', () => {
+      const o = config.observability;
+      assert.equal(ofType(resources, 'AWS::APS::Workspace').length, o.enabled ? 1 : 0);
+      const fileSystems = ofType(resources, 'AWS::EFS::FileSystem');
+      assert.equal(fileSystems.length, o.enabled ? 1 : 0);
+      for (const fs of fileSystems) {
+        assert.equal(fs['Encrypted'], true, 'EFS.1');
+        assert.deepEqual(fs['BackupPolicy'], { Status: 'ENABLED' }, 'EFS.2');
+      }
+      for (const ap of ofType(resources, 'AWS::EFS::AccessPoint')) {
+        assert.ok(ap['PosixUser'], 'EFS.4 access point enforces a user');
+        assert.notEqual(
+          (ap['RootDirectory'] as { Path?: string } | undefined)?.Path ?? '/',
+          '/',
+          'EFS.3',
+        );
+      }
+      if (!o.enabled) return;
+      const grafanaRules = ofType(resources, 'AWS::ElasticLoadBalancingV2::ListenerRule').filter(
+        (r) => JSON.stringify(r['Conditions']).includes(`${o.grafana.hostname}.`),
+      );
+      assert.equal(grafanaRules.length, o.grafana.allowedCidrs.length > 0 ? 1 : 0);
+      for (const rule of grafanaRules) {
+        assert.match(
+          JSON.stringify(rule['Conditions']),
+          /source-ip/,
+          'Grafana is restricted by source IP',
+        );
+      }
+      const enabledServices = Object.values(config.services).filter((s) => s.enabled).length;
+      // Every service plus the database job, PostgreSQL, and Valkey.
+      assert.equal(ofType(resources, 'AWS::Logs::SubscriptionFilter').length, enabledServices + 3);
     });
 
     void it('ELB: drops invalid headers, logs, redirects HTTP, TLS 1.2+ (ELB.1/4/5/6/13)', () => {
@@ -214,6 +262,21 @@ for (const env of ENVS) {
       if (env !== 'dev') assert.equal(config.waf.enabled, true);
     });
 
+    void it('NAT: private subnets have a working route to the internet', () => {
+      if (config.vpc.nat.mode === 'gateway') {
+        assert.equal(ofType(resources, 'AWS::EC2::NatGateway').length, config.vpc.nat.count);
+        return;
+      }
+      const instances = ofType(resources, 'AWS::EC2::Instance');
+      assert.equal(instances.length, config.vpc.nat.count);
+      for (const instance of instances) {
+        assert.equal(instance['SourceDestCheck'], false);
+        const nics = instance['NetworkInterfaces'] as
+          { AssociatePublicIpAddress?: boolean }[] | undefined;
+        assert.equal(nics?.[0]?.AssociatePublicIpAddress, true, 'NAT instance needs a public IP');
+      }
+    });
+
     void it('VPC: flow logs on, default security group restricted (EC2.2/6)', () => {
       assert.equal(ofType(resources, 'AWS::EC2::FlowLog').length, 1);
       assert.equal(
@@ -227,17 +290,19 @@ for (const env of ENVS) {
 
     void it('Secrets: database and cache credentials rotate (SecretsManager.1)', () => {
       assert.equal(ofType(resources, 'AWS::SecretsManager::RotationSchedule').length, 3);
-      assert.equal(
-        ofType(resources, 'AWS::Serverless::Application').length,
-        2,
-        'hosted RDS rotation functions',
+      const hosted = ofType(resources, 'AWS::SecretsManager::RotationSchedule').filter(
+        (r) => r['HostedRotationLambda'] != null,
       );
+      assert.equal(hosted.length, 2, 'Secrets Manager hosted rotation for the database secrets');
+      assert.equal(ofType(resources, 'AWS::Serverless::Application').length, 0);
     });
 
     void it('Lambda: current runtime, none public (Lambda.1/2)', () => {
       for (const fn of ofType(resources, 'AWS::Lambda::Function')) {
         const runtime = fn['Runtime'];
-        if (typeof runtime === 'string') assert.match(runtime, /^nodejs(22|24)\.x$/);
+        if (typeof runtime === 'string')
+          // CDK's BucketDeployment runs on Python.
+          assert.match(runtime, /^(nodejs(22|24)\.x|python3\.1[2-4])$/);
       }
       for (const perm of ofType(resources, 'AWS::Lambda::Permission')) {
         assert.notEqual(perm['Principal'], '*');

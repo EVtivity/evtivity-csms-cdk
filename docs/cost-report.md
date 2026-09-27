@@ -6,9 +6,11 @@ Monthly estimates for the committed `dev`, `qa`, and `prod` configs in us-east-1
 
 | Environment | Monthly estimate | Main drivers                                                                                             |
 | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| dev         | $122 to $180     | Aurora (36 to 49%), ALB with IPv4 (24%), Fargate Spot (10 to 15%)                                        |
-| qa          | $180 to $241     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
-| prod        | $583 to $939     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
+| dev         | $131 to $192     | Aurora (36 to 49%), ALB with IPv4 (24%), Fargate Spot (10 to 15%)                                        |
+| qa          | $206 to $273     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
+| prod        | $609 to $971     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
+
+Totals include observability (Prometheus, Loki, Grafana), which every environment enables. It adds $9 to $12 in dev (Fargate Spot) and $26 to $32 in qa and prod. The per-environment tables below list the platform without it.
 
 Optional add-ons:
 
@@ -90,6 +92,20 @@ Optional add-ons:
 | CloudWatch Logs (10 to 40 GB ingest, 365-day retention)                   | $8 to $30          |
 | Cloud Map, Lambda, S3, data transfer, other                               | $5 to $20          |
 | **Total**                                                                 | **$583 to $939**   |
+
+## Observability (per environment)
+
+| Line                                                                                                                                                        | Monthly                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Fargate: Prometheus 0.25 vCPU/0.5 GB, Loki 0.25/1 GB, Grafana 0.25/0.5 GB (on-demand; dev on Spot about $6.88)                                              | $22.93                         |
+| Amazon Managed Service for Prometheus: first 40 million samples free, then $0.90 per 10 million (API metrics at a 60-second scrape stay near the free tier) | $0 to $4                       |
+| EFS (Loki WAL and Grafana database, under 1 GB, elastic throughput)                                                                                         | $0.50 to $2                    |
+| S3 for Loki chunks and Grafana files                                                                                                                        | $0.25 to $1                    |
+| Log forwarder Lambda (one invocation per CloudWatch batch)                                                                                                  | $0.10 to $1                    |
+| Secrets Manager (Grafana admin)                                                                                                                             | $0.40                          |
+| **Total**                                                                                                                                                   | **$26 to $32 (dev $9 to $12)** |
+
+Loki keeps a copy of the logs, so CloudWatch Logs ingestion is unchanged. Only the S3 copy is added.
 
 ## Decisions that set these numbers
 

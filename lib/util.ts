@@ -66,3 +66,13 @@ export function appBucketName(config: Config): string {
 export function logsBucketName(config: Config): string {
   return `${namePrefix(config)}-logs-${config.account}`;
 }
+
+/** Grafana provisioning bucket name (dashboards, alert rules, datasources). */
+export function grafanaBucketName(config: Config): string {
+  return `${namePrefix(config)}-grafana-${config.account}`;
+}
+
+/** Loki storage bucket name (chunks and indexes). */
+export function lokiBucketName(config: Config): string {
+  return `${namePrefix(config)}-loki-${config.account}`;
+}

@@ -3,7 +3,15 @@
 
 import { Stack, type StackProps, aws_ec2 as ec2, aws_logs as logs } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { SERVICE_CATALOG, SERVICE_NAMES, albPorts, internalPorts } from '../catalog.js';
+import {
+  API_METRICS_PORT,
+  GRAFANA_PORT,
+  LOKI_PORT,
+  SERVICE_CATALOG,
+  SERVICE_NAMES,
+  albPorts,
+  internalPorts,
+} from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { removalPolicyOf } from '../util.js';
 
@@ -55,6 +63,10 @@ export class NetworkStack extends Stack {
         instanceType: new ec2.InstanceType(nat.instanceType),
         machineImage: ec2.MachineImage.genericLinux({ [config.region]: ami }),
         defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
+        // Public subnets do not auto-assign public IPs (EC2.15), so the NAT
+        // instance must request one. Without it the private subnets have no
+        // route to the internet or AWS APIs.
+        associatePublicIpAddress: true,
       });
       natProvider = fckNat;
     } else {
@@ -158,6 +170,13 @@ export class NetworkStack extends Stack {
       if (!config.services[name].enabled) continue;
       if (SERVICE_CATALOG[name].public) albPorts(name).forEach((p) => albTargetPorts.add(p));
       internalPorts(name, ocppTlsPort).forEach((p) => internal.add(p));
+    }
+    if (config.observability.enabled) {
+      // Grafana behind the ALB, Loki pushes from the log forwarder and
+      // queries from Grafana, and Prometheus scraping the API metrics port.
+      albTargetPorts.add(GRAFANA_PORT);
+      internal.add(LOKI_PORT);
+      internal.add(API_METRICS_PORT);
     }
     for (const port of [...albTargetPorts].sort((a, b) => a - b)) {
       this.albSg.addEgressRule(this.ecsSg, ec2.Port.tcp(port), `ALB to tasks on ${String(port)}`);

@@ -46,17 +46,18 @@ export interface DbJobProps {
  */
 export class DbJob extends Construct {
   readonly resource: CustomResource;
+  readonly logGroup: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: DbJobProps) {
     super(scope, id);
     const { config } = props;
     tagService(this, 'db-job');
 
-    const logGroup = new logs.LogGroup(this, 'Logs', {
+    const logGroup = (this.logGroup = new logs.LogGroup(this, 'Logs', {
       logGroupName: `/evtivity/${config.env}/db-job`,
       retention: config.logs.retentionDays,
       removalPolicy: removalPolicyOf(config.logs.removal),
-    });
+    }));
 
     const taskDef = new ecs.FargateTaskDefinition(this, 'Task', {
       family: `evtivity-${config.env}-db-job`,

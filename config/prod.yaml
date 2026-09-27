@@ -80,26 +80,35 @@ appSettings: {}
 monitoring:
   dashboard: true
   alarms: true
+observability:
+  enabled: true
+  grafana:
+    # grafana.<zone> accepts only these CIDRs. Empty keeps Grafana off the
+    # internet (reach it through ECS Exec). Set office or VPN ranges in
+    # config/<env>.local.yaml.
+    allowedCidrs: []
+  loki:
+    retentionDays: 90
 services:
   api:
     enabled: true
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: {min: 2, max: 6}
+    autoscaling: { min: 2, max: 6 }
   ocpp:
     enabled: true
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: {min: 2, max: 6, scaleInCooldownSeconds: 600}
+    autoscaling: { min: 2, max: 6, scaleInCooldownSeconds: 600 }
     # Stations reconnect to another task while this one drains.
     deregistrationDelaySeconds: 300
     stopTimeoutSeconds: 120
   ocpi:
     enabled: true
     desiredCount: 2
-    autoscaling: {min: 2, max: 4}
+    autoscaling: { min: 2, max: 4 }
   csms:
     enabled: true
     desiredCount: 2
