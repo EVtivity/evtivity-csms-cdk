@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import {
+  Aspects,
   Aws,
   Stack,
   type StackProps,
@@ -23,7 +24,7 @@ import {
   aws_sns_subscriptions as subs,
   aws_servicediscovery as servicediscovery,
 } from 'aws-cdk-lib';
-import type { Construct } from 'constructs';
+import type { Construct, IConstruct } from 'constructs';
 import { SERVICE_CATALOG, SERVICE_NAMES, discoveryName, type ServiceName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { AppService } from '../constructs/app-service.js';
@@ -499,6 +500,26 @@ export class AppStack extends Stack {
         ...(grafanaUrl != null && { grafanaUrl }),
       });
     }
+
+    // Services must be deleted before the cluster's capacity provider
+    // association. Without this dependency CloudFormation may delete the
+    // association first, which fails while Fargate Spot tasks still run
+    // ("The specified capacity provider is in use") and leaves the stack in
+    // DELETE_FAILED on destroy. CDK creates the association in an aspect at
+    // synth, so this one runs after it.
+    const cluster = this.cluster;
+    Aspects.of(this).add(
+      {
+        visit(node: IConstruct): void {
+          if (!(node instanceof ecs.CfnService)) return;
+          const association = cluster.node
+            .findAll()
+            .find((c) => c instanceof ecs.CfnClusterCapacityProviderAssociations);
+          if (association != null) node.node.addDependency(association);
+        },
+      },
+      { priority: 600 },
+    );
 
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });
     for (const [name, url] of Object.entries(urls)) {

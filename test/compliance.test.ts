@@ -84,6 +84,19 @@ for (const env of ENVS) {
   void describe(`${env} environment`, () => {
     const { config, resources, templates } = synth(env);
 
+    void it('ECS: services are deleted before the capacity provider association', () => {
+      const entries = Object.entries(resources);
+      const association = entries.find(
+        ([, r]) => r.Type === 'AWS::ECS::ClusterCapacityProviderAssociations',
+      )?.[0];
+      assert.ok(association, 'the cluster has a capacity provider association');
+      for (const [id, r] of entries) {
+        if (r.Type !== 'AWS::ECS::Service') continue;
+        const deps = (r as { DependsOn?: string[] }).DependsOn ?? [];
+        assert.ok(deps.includes(association), `${id} depends on ${association}`);
+      }
+    });
+
     void it('Lambda: every function logs to a managed log group with retention', () => {
       // Otherwise Lambda creates /aws/lambda/<name> on first run with no
       // retention, and it survives stack deletion.
