@@ -23,7 +23,7 @@ Each exception lists the control, the affected resources and environments, why t
 
 **Affected resources:** the ALB target groups for api, ocpp, ocpi, csms, and portal, in all environments (dev, qa, prod).
 
-**Why it is not met:** TLS terminates at the ALB, which forwards HTTP to the containers. The published images (up to 0.1.19) only serve plain HTTP. Serving HTTPS inside each container requires an application release.
+**Why it is not met:** TLS terminates at the ALB, which forwards HTTP to the containers. The published images only serve plain HTTP. Serving HTTPS inside each container requires an application release.
 
 **Compensating controls:**
 
@@ -85,7 +85,7 @@ Each exception lists the control, the affected resources and environments, why t
 
 ## EXC-005: NAT instance with a public IP in lower environments
 
-**Controls:** EC2.9 (instances should not have a public IPv4 address). SSM.1 (instances managed by Systems Manager) does not apply because the instance has no instance profile for SSM.
+**Controls:** EC2.9 (instances should not have a public IPv4 address). SSM.1 (instances managed by Systems Manager) is not met: the instance has an instance profile, but its role has no Systems Manager permissions, so it is not a managed instance. The fck-nat AMI is replaced, not patched, when a new version is pinned in config.
 
 **Affected resources:** the fck-nat instance in dev and qa (`vpc.nat.mode: fck-nat`). Prod uses managed NAT gateways.
 

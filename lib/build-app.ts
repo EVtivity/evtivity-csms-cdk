@@ -9,6 +9,7 @@ import { DataStack } from './stacks/data-stack.js';
 import { DomainStack } from './stacks/domain-stack.js';
 import { NetworkStack } from './stacks/network-stack.js';
 import { StorageStack } from './stacks/storage-stack.js';
+import { manageLambdaLogGroups } from './lambda-logs.js';
 import { tagStack } from './tagging.js';
 import { appBucketName, stackPrefix } from './util.js';
 
@@ -30,12 +31,6 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
   const prefix = stackPrefix(config);
   const d = stackDescriptions(config);
 
-  const network = new NetworkStack(app, `${prefix}-Network`, {
-    env,
-    config,
-    description: d.network,
-  });
-
   const domain = new DomainStack(app, `${prefix}-Domain`, {
     env,
     config,
@@ -46,6 +41,13 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     env,
     config,
     description: d.storage,
+  });
+
+  const network = new NetworkStack(app, `${prefix}-Network`, {
+    env,
+    config,
+    logsBucket: storage.logsBucket,
+    description: d.network,
   });
 
   const data = new DataStack(app, `${prefix}-Data`, {
@@ -73,6 +75,8 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     vpc: network.vpc,
     ecsSg: network.ecsSg,
     ...(network.nlbSg != null && { nlbSg: network.nlbSg }),
+    ...(network.observabilitySg != null && { observabilitySg: network.observabilitySg }),
+    natIds: network.natIds,
     alb: alb.alb,
     httpsListener: alb.httpsListener,
     httpListener: alb.httpListener,
@@ -90,12 +94,18 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
       jwtSecret: data.jwtSecret,
       settingsKeySecret: data.settingsKeySecret,
       initialAdminSecret: data.initialAdminSecret,
+      postgresLogs: data.postgresLogs,
+      valkeySlowLog: data.valkeySlowLog,
     },
     description: d.app,
   });
 
   // The app stack names the bucket directly instead of importing it.
   appStack.addStackDependency(storage);
+
+  for (const stack of [network, domain, storage, data, alb, appStack]) {
+    manageLambdaLogGroups(stack, config);
+  }
 
   tagStack(network, config, 'network', updatedDate);
   tagStack(domain, config, 'domain', updatedDate);
@@ -111,7 +121,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
  * CloudFormation stack descriptions. Built from the config so each one lists
  * only what that environment deploys.
  */
-export function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string> {
+function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string> {
   const obs = config.observability.enabled;
   const list = (items: (string | false)[]): string =>
     `EVtivity ${config.env}: ${items.filter((i): i is string => i !== false).join(', ')}`;

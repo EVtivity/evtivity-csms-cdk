@@ -27,7 +27,9 @@ import type { Construct } from 'constructs';
 import { SERVICE_CATALOG, SERVICE_NAMES, discoveryName, type ServiceName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { AppService } from '../constructs/app-service.js';
+import { Dashboards } from '../constructs/dashboards.js';
 import { DbJob } from '../constructs/db-job.js';
+import { EnvMetrics } from '../constructs/metrics.js';
 import { Monitoring } from '../constructs/monitoring.js';
 import { Observability } from '../constructs/observability.js';
 import {
@@ -43,8 +45,11 @@ export interface AppStackProps extends StackProps {
   config: Config;
   vpc: ec2.IVpc;
   ecsSg: ec2.ISecurityGroup;
+  observabilitySg?: ec2.ISecurityGroup;
   nlbSg?: ec2.ISecurityGroup;
-  alb: elbv2.IApplicationLoadBalancer;
+  /** NAT instance or gateway ids from the Network stack. */
+  natIds: string[];
+  alb: elbv2.ApplicationLoadBalancer;
   httpsListener: elbv2.IApplicationListener;
   httpListener: elbv2.IApplicationListener;
   hostedZone: route53.IHostedZone;
@@ -62,6 +67,8 @@ export interface AppStackProps extends StackProps {
     jwtSecret: secretsmanager.ISecret;
     settingsKeySecret: secretsmanager.ISecret;
     initialAdminSecret: secretsmanager.ISecret;
+    postgresLogs: logs.ILogGroup;
+    valkeySlowLog: logs.ILogGroup;
   };
 }
 
@@ -73,7 +80,6 @@ export interface AppStackProps extends StackProps {
 export class AppStack extends Stack {
   readonly cluster: ecs.Cluster;
   readonly services: Partial<Record<ServiceName, AppService>> = {};
-  readonly ocppNlb?: elbv2.NetworkLoadBalancer;
 
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
@@ -81,6 +87,10 @@ export class AppStack extends Stack {
     const prefix = namePrefix(config);
     const namespace = `${config.env}.evtivity.internal`;
     const internal = (name: ServiceName): string => `${discoveryName(name)}.${namespace}`;
+    // Internal OCPP endpoints for the worker, API, and simulator. The TLS
+    // port is the listener's when OCPP TLS is on, else the OCPP default.
+    const ocppUrl = `ws://${internal('ocpp')}:8080`;
+    const ocppTlsUrl = `wss://${internal('ocpp')}:${String(config.ocppTls.enabled ? config.ocppTls.port : 8443)}`;
 
     // With ECS Exec on, every session and its commands are logged for audit.
     const execLogs = config.ecs.executeCommand
@@ -135,13 +145,11 @@ export class AppStack extends Stack {
       settingsKeySecret: data.settingsKeySecret,
       initialAdminSecret: data.initialAdminSecret,
       settings,
-      ...(config.seedDemo.enabled && {
-        demo: {
-          ocppUrl: `ws://${internal('ocpp')}:8080`,
-          ocppTlsUrl: `wss://${internal('ocpp')}:${String(config.ocppTls.enabled ? config.ocppTls.port : 8443)}`,
-          tlsEnabled: config.ocppTls.enabled,
-        },
-      }),
+      simulator: {
+        ocppUrl,
+        ocppTlsUrl,
+      },
+      ...(config.seedDemo.enabled && { demo: { tlsEnabled: config.ocppTls.enabled } }),
     });
 
     // --- Services ---
@@ -204,7 +212,7 @@ export class AppStack extends Stack {
             // cookie must be scoped to the parent domain of both hosts.
             COOKIE_DOMAIN: zoneApex(config),
             OCPP_PORT: '8080',
-            OCPP_SERVER_URL: `ws://${internal('ocpp')}:8080`,
+            OCPP_SERVER_URL: ocppUrl,
             SEED_DEMO: 'false',
           });
           secrets['JWT_SECRET'] = ecs.Secret.fromSecretsManager(data.jwtSecret);
@@ -253,15 +261,15 @@ export class AppStack extends Stack {
             API_PORT: '3001',
             OCPP_PORT: '8080',
             API_BASE_URL: `http://${internal('api')}:3001`,
-            OCPP_SERVER_URL: `ws://${internal('ocpp')}:8080`,
+            OCPP_SERVER_URL: ocppUrl,
             CSMS_URL: urls.csms,
             PORTAL_URL: urls.portal,
           });
           break;
         case 'css':
           Object.assign(environment, {
-            OCPP_SERVER_URL: `ws://${internal('ocpp')}:8080`,
-            OCPP_TLS_SERVER_URL: `wss://${internal('ocpp')}:${String(ocppTlsPort ?? 8443)}`,
+            OCPP_SERVER_URL: ocppUrl,
+            OCPP_TLS_SERVER_URL: ocppTlsUrl,
             CSS_MODE: 'standby',
             CSS_HEALTH_PORT: '8082',
           });
@@ -363,7 +371,7 @@ export class AppStack extends Stack {
 
     const ocpp = this.services.ocpp;
     if (ocppTlsPort != null && ocpp != null && props.nlbSg != null) {
-      this.ocppNlb = this.addOcppTlsNlb(config, props, ocpp, ocppTlsPort);
+      this.addOcppTlsNlb(config, props, ocpp, ocppTlsPort);
     }
 
     if (config.ecs.redeployEveryDays > 0) this.addScheduledRedeploys(config);
@@ -418,57 +426,78 @@ export class AppStack extends Stack {
       },
       targets: [new eventTargets.SnsTopic(alertTopic)],
     });
+    // The weekly redeploys run outside CloudFormation. When the circuit
+    // breaker rolls one back, nothing else reports it.
+    new events.Rule(this, 'DeploymentFailures', {
+      ruleName: `${prefix}-deployment-failures`,
+      description: 'ECS service deployments that failed in this cluster',
+      eventPattern: {
+        source: ['aws.ecs'],
+        detailType: ['ECS Deployment State Change'],
+        resources: events.Match.prefix(
+          `arn:${Aws.PARTITION}:ecs:${this.region}:${this.account}:service/${this.cluster.clusterName}/`,
+        ),
+        detail: { eventName: ['SERVICE_DEPLOYMENT_FAILED'] },
+      },
+      targets: [new eventTargets.SnsTopic(alertTopic)],
+    });
     if (config.monitoring.alarmEmail != null) {
       alertTopic.addSubscription(new subs.EmailSubscription(config.monitoring.alarmEmail));
     }
 
-    if (config.monitoring.dashboard || config.monitoring.alarms) {
-      new Monitoring(this, 'Monitoring', {
-        config,
-        clusterName: this.cluster.clusterName,
-        alb: props.alb,
-        services: this.services,
-        alertTopic,
-      });
+    // Log groups by the `service` label the Grafana logs dashboard filters
+    // on, matching the Helm and Compose names (the simulator is `simulator`,
+    // Valkey `redis`). Loki and the CloudWatch logs dashboard both use them.
+    const lokiLabels: Partial<Record<ServiceName, string>> = {
+      css: 'simulator',
+      ocpiSim: 'ocpi-simulator',
+      ocpiCpoSim: 'ocpi-cpo-simulator',
+    };
+    const logGroups: Record<string, logs.ILogGroup> = {
+      migrate: dbJob.logGroup,
+      postgres: data.postgresLogs,
+      redis: data.valkeySlowLog,
+    };
+    for (const [name, svc] of Object.entries(this.services) as [ServiceName, AppService][]) {
+      logGroups[lokiLabels[name] ?? name] = svc.logGroup;
     }
 
-    if (config.observability.enabled) {
-      // Loki `service` labels match the Helm/compose names the logs
-      // dashboard filters on (the simulator is `simulator`, Valkey `redis`).
-      const lokiLabels: Partial<Record<ServiceName, string>> = {
-        css: 'simulator',
-        ocpiSim: 'ocpi-simulator',
-        ocpiCpoSim: 'ocpi-cpo-simulator',
-      };
-      const logGroups: Record<string, logs.ILogGroup> = {
-        migrate: dbJob.logGroup,
-        postgres: logs.LogGroup.fromLogGroupName(
-          this,
-          'PostgresLogs',
-          `/aws/rds/cluster/${prefix}/postgresql`,
-        ),
-        redis: logs.LogGroup.fromLogGroupName(
-          this,
-          'ValkeyLogs',
-          `/evtivity/${config.env}/valkey-slow-log`,
-        ),
-      };
-      for (const [name, svc] of Object.entries(this.services) as [ServiceName, AppService][]) {
-        logGroups[lokiLabels[name] ?? name] = svc.logGroup;
-      }
-      const observability = new Observability(this, 'Observability', {
+    const observability = config.observability.enabled
+      ? new Observability(this, 'Observability', {
+          config,
+          cluster: this.cluster,
+          vpc,
+          securityGroup: props.observabilitySg ?? ecsSg,
+          namespace,
+          alb: props.alb,
+          httpsListener: props.httpsListener,
+          hostedZone: props.hostedZone,
+          alertTopic,
+          logGroups,
+        })
+      : undefined;
+    const grafanaUrl = observability != null ? `https://${observability.grafanaHost}` : undefined;
+    if (grafanaUrl != null) new CfnOutput(this, 'Url-grafana', { value: grafanaUrl });
+
+    const metrics = new EnvMetrics(config, this.cluster.clusterName, props.alb, props.natIds);
+    const alarms = config.monitoring.alarms
+      ? new Monitoring(this, 'Monitoring', {
+          config,
+          metrics,
+          services: this.services,
+          alertTopic,
+          ...(observability != null && { lokiForwarder: observability.lokiForwarder }),
+        }).alarms
+      : [];
+    if (config.monitoring.dashboard) {
+      new Dashboards(this, 'Dashboards', {
         config,
-        cluster: this.cluster,
-        vpc,
-        securityGroup: ecsSg,
-        namespace,
-        alb: props.alb,
-        httpsListener: props.httpsListener,
-        hostedZone: props.hostedZone,
-        alertTopic,
+        metrics,
+        services: this.services,
         logGroups,
+        alarms,
+        ...(grafanaUrl != null && { grafanaUrl }),
       });
-      new CfnOutput(this, 'Url-grafana', { value: `https://${observability.grafanaHost}` });
     }
 
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });
@@ -482,7 +511,7 @@ export class AppStack extends Stack {
     props: AppStackProps,
     ocpp: AppService,
     port: number,
-  ): elbv2.NetworkLoadBalancer {
+  ): void {
     const nlb = new elbv2.NetworkLoadBalancer(this, 'OcppTlsNlb', {
       loadBalancerName: `${namePrefix(config)}-ocpp-tls`,
       vpc: props.vpc,
@@ -518,7 +547,6 @@ export class AppStack extends Stack {
       target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(nlb)),
     });
     new CfnOutput(this, 'Url-ocppTls', { value: `wss://${host}:${String(port)}` });
-    return nlb;
   }
 
   /**

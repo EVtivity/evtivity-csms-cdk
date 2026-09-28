@@ -14,8 +14,12 @@ export function isValidEnv(env: string): env is EnvName {
 
 function readYaml(path: string): Record<string, unknown> {
   const raw = readFileSync(path, 'utf-8');
+  // An empty or fully commented file overrides nothing. js-yaml throws on a
+  // document with no content, and returns null for a bare `---`.
+  if (raw.split(/\r?\n/).every((line) => /^\s*(#.*|---)?\s*$/.test(line))) return {};
   const parsed = load(raw);
-  if (typeof parsed !== 'object' || parsed === null) {
+  if (parsed == null) return {};
+  if (typeof parsed !== 'object') {
     throw new Error(`${path}: top-level YAML must be an object`);
   }
   return parsed as Record<string, unknown>;

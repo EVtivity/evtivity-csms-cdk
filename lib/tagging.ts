@@ -18,6 +18,13 @@ const NO_UPDATED_DATE = [
   'AWS::RDS::DBCluster',
   'AWS::RDS::DBInstance',
   'AWS::ElastiCache::ReplicationGroup',
+  // An update re-sends the full resource. For the Valkey user that resets its
+  // passwords to the one in the template, dropping the previous password
+  // that running tasks still use. For the Grafana IP set it replaces the
+  // addresses added with scripts/grafana-access.sh.
+  'AWS::ElastiCache::User',
+  'AWS::ElastiCache::UserGroup',
+  'AWS::WAFv2::IPSet',
 ];
 
 /**

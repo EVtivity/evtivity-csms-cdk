@@ -29,12 +29,6 @@ export interface AppServiceProps {
   extraPort?: number;
 }
 
-/** Scratch paths each image writes to. The root filesystem is read-only. */
-const WRITABLE_PATHS: Record<'node' | 'nginx', string[]> = {
-  node: ['/tmp'],
-  nginx: ['/tmp'],
-};
-
 /**
  * One EVtivity service on Fargate: task definition, service, autoscaling,
  * Cloud Map name, and (for public services) an ALB target group with a
@@ -97,18 +91,19 @@ export class AppService extends Construct {
       user,
       ...(spec.health != null && { healthCheck: containerHealthCheck(spec.kind, spec.health) }),
     });
-    for (const [i, path] of WRITABLE_PATHS[spec.kind].entries()) {
-      const volume = `scratch${String(i)}`;
-      this.taskDefinition.addVolume({ name: volume });
-      container.addMountPoints({ containerPath: path, sourceVolume: volume, readOnly: false });
-    }
+    // The root filesystem is read-only. Both image kinds write only to /tmp,
+    // which they declare as a VOLUME so Fargate gives it the right owner.
+    this.taskDefinition.addVolume({ name: 'scratch0' });
+    container.addMountPoints({ containerPath: '/tmp', sourceVolume: 'scratch0', readOnly: false });
     if (config.ecs.executeCommand) addExecVolumes(this.taskDefinition, container);
 
     this.service = new ecs.FargateService(this, 'Service', {
       serviceName: `${namePrefix(config)}-${name}`,
       cluster: props.cluster,
       taskDefinition: this.taskDefinition,
-      desiredCount: sc.desiredCount,
+      // With autoscaling, leave the count to it. A template count would
+      // reset a scaled-out service on every deploy.
+      ...(sc.autoscaling == null && { desiredCount: sc.desiredCount }),
       assignPublicIp: false,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.securityGroup],

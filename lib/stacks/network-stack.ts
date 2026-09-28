@@ -1,7 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Stack, type StackProps, aws_ec2 as ec2, aws_logs as logs } from 'aws-cdk-lib';
+import {
+  Duration,
+  Stack,
+  type StackProps,
+  aws_cloudwatch as cw,
+  aws_cloudwatch_actions as cwActions,
+  aws_ec2 as ec2,
+  type aws_s3 as s3,
+} from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import {
   API_METRICS_PORT,
@@ -13,10 +21,11 @@ import {
   internalPorts,
 } from '../catalog.js';
 import type { Config } from '../config/index.js';
-import { removalPolicyOf } from '../util.js';
 
 export interface NetworkStackProps extends StackProps {
   config: Config;
+  /** Receives VPC flow logs under vpc-flow-logs/. */
+  logsBucket: s3.IBucket;
 }
 
 const ENDPOINT_SERVICES: Record<
@@ -43,9 +52,17 @@ export class NetworkStack extends Stack {
   readonly vpc: ec2.Vpc;
   readonly albSg: ec2.SecurityGroup;
   readonly ecsSg: ec2.SecurityGroup;
-  /** Rotation Lambdas and the database job: reach Aurora, Valkey, and AWS APIs. */
+  /** Credential rotation functions: reach Aurora, Valkey, and AWS APIs. */
   readonly rotationSg: ec2.SecurityGroup;
+  /**
+   * Grafana, Loki, Prometheus, and the log forwarder. Separate from ecsSg so
+   * that Grafana, which is reachable from the internet through the ALB, has
+   * no network path to Aurora or Valkey.
+   */
+  readonly observabilitySg?: ec2.SecurityGroup;
   readonly nlbSg?: ec2.SecurityGroup;
+  /** NAT instance ids (fck-nat) or NAT gateway ids, for alarms. */
+  readonly natIds: string[];
   private readonly configuredAzs: string[];
 
   constructor(scope: Construct, id: string, props: NetworkStackProps) {
@@ -111,18 +128,20 @@ export class NetworkStack extends Stack {
             Ebs: { Encrypted: true, VolumeType: 'gp3', DeleteOnTermination: true },
           },
         ]);
+        if (instance != null) this.addNatReboot(instance, subnet.availabilityZone);
       }
     }
+    this.natIds = natProvider.configuredGateways.map((g) => g.gatewayId);
 
-    // VPC flow logs (EC2.6).
-    const flowLogGroup = new logs.LogGroup(this, 'FlowLogs', {
-      logGroupName: `/evtivity/${config.env}/vpc-flow-logs`,
-      retention: config.vpc.flowLogRetentionDays,
-      removalPolicy: removalPolicyOf(config.logs.removal),
-    });
+    // VPC flow logs (EC2.6). S3 costs about half of CloudWatch Logs ingestion
+    // for this volume, and the logs bucket's expiration sets the retention.
     new ec2.FlowLog(this, 'VpcFlowLog', {
       resourceType: ec2.FlowLogResourceType.fromVpc(this.vpc),
-      destination: ec2.FlowLogDestination.toCloudWatchLogs(flowLogGroup),
+      destination: ec2.FlowLogDestination.toS3(props.logsBucket, 'vpc-flow-logs/', {
+        fileFormat: ec2.FlowLogFileFormat.PARQUET,
+        hiveCompatiblePartitions: true,
+        perHourPartition: true,
+      }),
       trafficType: ec2.FlowLogTrafficType.ALL,
     });
 
@@ -172,11 +191,19 @@ export class NetworkStack extends Stack {
       internalPorts(name, ocppTlsPort).forEach((p) => internal.add(p));
     }
     if (config.observability.enabled) {
-      // Grafana behind the ALB, Loki pushes from the log forwarder and
-      // queries from Grafana, and Prometheus scraping the API metrics port.
-      albTargetPorts.add(GRAFANA_PORT);
-      internal.add(LOKI_PORT);
-      internal.add(API_METRICS_PORT);
+      const obs = new ec2.SecurityGroup(this, 'ObservabilitySg', {
+        vpc: this.vpc,
+        description: 'EVtivity observability (Grafana, Loki, Prometheus, log forwarder)',
+        // Amazon Managed Prometheus, S3, SNS, and image registries.
+        allowAllOutbound: true,
+      });
+      this.observabilitySg = obs;
+      this.albSg.addEgressRule(obs, ec2.Port.tcp(GRAFANA_PORT), 'ALB to Grafana');
+      obs.addIngressRule(this.albSg, ec2.Port.tcp(GRAFANA_PORT), 'ALB to Grafana');
+      // Log forwarder pushes and Grafana queries.
+      obs.addIngressRule(obs, ec2.Port.tcp(LOKI_PORT), 'Loki from observability');
+      // Prometheus scrapes the API metrics port.
+      this.ecsSg.addIngressRule(obs, ec2.Port.tcp(API_METRICS_PORT), 'Prometheus scrape');
     }
     for (const port of [...albTargetPorts].sort((a, b) => a - b)) {
       this.albSg.addEgressRule(this.ecsSg, ec2.Port.tcp(port), `ALB to tasks on ${String(port)}`);
@@ -208,5 +235,26 @@ export class NetworkStack extends Stack {
   /** AZs come from config, so synth performs no availability-zone lookup. */
   override get availabilityZones(): string[] {
     return this.configuredAzs;
+  }
+
+  // A single NAT instance carries all private egress in lower environments.
+  // EC2 already moves it to healthy hardware after a host failure (simplified
+  // automatic recovery, on by default for t4g). Reboot it when the instance
+  // itself stops responding. The App stack alarms also notify.
+  private addNatReboot(instance: ec2.Instance, az: string): void {
+    new cw.Alarm(this, `NatReboot-${az}`, {
+      alarmDescription: `Reboot the NAT instance in ${az} when it stops responding`,
+      metric: new cw.Metric({
+        namespace: 'AWS/EC2',
+        metricName: 'StatusCheckFailed_Instance',
+        dimensionsMap: { InstanceId: instance.instanceId },
+        statistic: 'Maximum',
+        period: Duration.minutes(1),
+      }),
+      threshold: 1,
+      evaluationPeriods: 3,
+      comparisonOperator: cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cw.TreatMissingData.MISSING,
+    }).addAlarmAction(new cwActions.Ec2Action(cwActions.Ec2InstanceAction.REBOOT));
   }
 }

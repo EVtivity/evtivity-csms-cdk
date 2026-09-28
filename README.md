@@ -23,7 +23,7 @@ Deploy [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms), the open char
 - **One load balancer for every service**, routed by hostname, with TLS certificates issued and renewed for you. An optional network load balancer passes OCPP security profile 3 (mutual TLS) straight to the OCPP server.
 - **Automatic credential rotation** for the database and cache users, with no downtime.
 - **Observability:** Prometheus, Loki, and Grafana with the same dashboards and alert rules as the Helm chart. Alerts go to an SNS topic you can subscribe to.
-- **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall in qa and prod, and automated checks against the AWS Foundational Security Best Practices on every build.
+- **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall with managed rules in qa and prod, and automated checks against the AWS Foundational Security Best Practices on every build.
 - **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, Spot capacity, a database that pauses when idle) and a highly available production layout.
 
 ## Environments
@@ -111,14 +111,33 @@ aws cloudformation describe-stacks --stack-name Evtivity-Dev-App --profile <name
 | OCPI            | https://ocpi.dev.example.com                           |
 | Grafana         | https://grafana.dev.example.com (allowlisted IPs only) |
 
-The first dashboard admin is `initialAdmin.email`. Its password is generated during the deploy, and the dashboard asks you to change it at first sign-in:
+Initial sign-ins. Replace `dev` with the environment:
+
+| Service              | User                                                     | Password                                              | Notes                                                          |
+| -------------------- | -------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------- |
+| Dashboard (csms)     | `initialAdmin.email` from the config                     | `password` field of `evtivity/dev/initial-admin`      | Asks for a new password at first sign-in                       |
+| Driver portal        | none by default                                          | none                                                  | Drivers register on the portal. With demo data, see below.     |
+| Grafana              | `admin`                                                  | `evtivity/dev/grafana-admin` (the whole secret value) | Only from allowlisted addresses                                |
+| Demo operators       | `operator1@evtivity.local` to `operator9@evtivity.local` | `evtivity/dev/demo-password` (the whole secret value) | Only with `seedDemo.enabled`. Must change it at first sign-in. |
+| Demo driver (portal) | `driver@evtivity.local`                                  | `evtivity/dev/demo-password`                          | Only with `seedDemo.enabled`                                   |
 
 ```bash
+# Dashboard admin: prints {"email": "...", "password": "..."}
 aws secretsmanager get-secret-value --secret-id evtivity/dev/initial-admin \
+  --query SecretString --output text --profile <name>
+
+# Grafana admin password
+aws secretsmanager get-secret-value --secret-id evtivity/dev/grafana-admin \
+  --query SecretString --output text --profile <name>
+
+# Demo operator and driver password (seedDemo only)
+aws secretsmanager get-secret-value --secret-id evtivity/dev/demo-password \
   --query SecretString --output text --profile <name>
 ```
 
-Grafana's user is `admin`, with the password in `evtivity/dev/grafana-admin`. Grafana answers only to allowlisted addresses. Change the list at any time without a deploy:
+The admin keeps the password you set after the first sign-in. The secret is not updated, so it only works until then. Loading the demo data resets the admin to the secret's password.
+
+Grafana answers only to allowlisted addresses. Change the list at any time without a deploy:
 
 ```bash
 AWS_PROFILE=<name> ./scripts/grafana-access.sh dev add me     # also: list, remove <cidr>
@@ -151,12 +170,13 @@ Grafana's EVtivity folder has dashboards for system metrics, business metrics, l
 
 ### Pause or remove an environment
 
-- **Pause:** set `desiredCount: 0` on every service and deploy. Compute stops billing and the database pauses when idle.
-- **Remove:** `npm run destroy -- --context env=dev --all --profile <name>`. dev and qa delete all data. prod keeps a final database snapshot, its buckets, logs, and secrets.
+- **Pause:** set `desiredCount: 0` on every service (with autoscaling, set `autoscaling.min` to 0 as well) and deploy. Compute stops billing and the database pauses when idle.
+- **Remove:** `npm run destroy -- --context env=dev --all --profile <name>`. dev deletes all data. qa keeps a final database snapshot. prod keeps a final database snapshot, its buckets, logs, and secrets.
 
 ## Documentation
 
 - [Deployment guide](docs/deployment.md): every configuration option, credential rotation, observability, OCPP TLS, demo data, GitHub Actions
+- [Observability](docs/observability.md): Grafana, metrics and logs, CloudWatch dashboards, alerts
 - [Security](docs/security.md): controls, credentials, network, and tagging
 - [Compliance exceptions](docs/compliance-exceptions.md): the few AWS best-practice checks that are not met, and why
 - [Cost report](docs/cost-report.md): estimated monthly cost per environment

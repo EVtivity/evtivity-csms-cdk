@@ -25,7 +25,6 @@ vpc:
     mode: fck-nat
     count: 1
   interfaceEndpoints: []
-  flowLogRetentionDays: 30
 logs:
   retentionDays: 30
   removal: destroy
@@ -89,8 +88,8 @@ observability:
   enabled: true
   grafana:
     # grafana.<zone> accepts only these CIDRs. Empty keeps Grafana off the
-    # internet (reach it through ECS Exec). Set office or VPN ranges in
-    # config/<env>.local.yaml.
+    # internet until you add addresses with scripts/grafana-access.sh. Set
+    # office or VPN ranges in config/<env>.local.yaml.
     allowedCidrs: []
   loki:
     retentionDays: 30

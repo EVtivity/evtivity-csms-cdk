@@ -37,7 +37,6 @@ export class AlbStack extends Stack {
   readonly httpsListener: elbv2.ApplicationListener;
   readonly httpListener: elbv2.ApplicationListener;
   /** WAF IP set that may reach Grafana. Edited at run time by scripts/grafana-access.sh. */
-  readonly grafanaAllowList?: wafv2.CfnIPSet;
 
   constructor(scope: Construct, id: string, props: AlbStackProps) {
     super(scope, id, props);
@@ -85,14 +84,14 @@ export class AlbStack extends Stack {
     });
 
     if (config.waf.enabled || config.observability.enabled) {
-      this.grafanaAllowList = this.addWebAcl(config, prefix);
+      this.addWebAcl(config, prefix);
     }
 
     new CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
   }
 
   /** Creates the web ACL and returns the Grafana allowlist when there is one. */
-  private addWebAcl(config: Config, prefix: string): wafv2.CfnIPSet | undefined {
+  private addWebAcl(config: Config, prefix: string): void {
     const visibility = (metricName: string): wafv2.CfnWebACL.VisibilityConfigProperty => ({
       cloudWatchMetricsEnabled: true,
       metricName,
@@ -119,14 +118,13 @@ export class AlbStack extends Stack {
     });
 
     const rules: wafv2.CfnWebACL.RuleProperty[] = [];
-    let allowList: wafv2.CfnIPSet | undefined;
 
     if (config.observability.enabled) {
       // Grafana answers only to addresses in this IP set. The config list
       // seeds it on creation. After that, scripts/grafana-access.sh edits it
       // at run time without a deploy. Changing the seed in config replaces
       // the set's contents on the next deploy.
-      allowList = new wafv2.CfnIPSet(this, 'GrafanaAllowList', {
+      const allowList = new wafv2.CfnIPSet(this, 'GrafanaAllowList', {
         name: `${prefix}-grafana-allow`,
         description: `Source addresses allowed to reach Grafana in ${config.env}`,
         scope: 'REGIONAL',
@@ -143,7 +141,11 @@ export class AlbStack extends Stack {
               {
                 byteMatchStatement: {
                   fieldToMatch: { singleHeader: { Name: 'host' } },
-                  positionalConstraint: 'EXACTLY',
+                  // STARTS_WITH, not EXACTLY: "grafana.<zone>:443" and a
+                  // trailing-dot host still route to Grafana, so they must
+                  // be blocked too. Blocking extra hosts that begin the same
+                  // way is harmless.
+                  positionalConstraint: 'STARTS_WITH',
                   searchString: grafanaHost(config),
                   textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
                 },
@@ -222,6 +224,5 @@ export class AlbStack extends Stack {
         { singleHeader: { Name: 'cookie' } },
       ],
     });
-    return allowList;
   }
 }

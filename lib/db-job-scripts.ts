@@ -6,7 +6,7 @@
 // master secret, so every step connects as the cluster owner.
 
 /** Group role that holds every application privilege. */
-export const APP_GROUP_ROLE = 'evtivity_app_group';
+const APP_GROUP_ROLE = 'evtivity_app_group';
 
 /**
  * Creates the application login role if it does not exist and grants the
@@ -62,24 +62,20 @@ try {
 `;
 
 /**
- * Upserts the non-secret settings from SETTINGS_JSON. Same behavior as the
- * Helm seed-settings job: keys ending in Enc are encrypted with the
- * application's own encryptString.
+ * Upserts the settings from SETTINGS_JSON. The config schema rejects
+ * credentials (keys ending in Enc), so every value here is plain.
  */
 export const SEED_SETTINGS_JS = `
 import postgres from 'postgres';
-import { encryptString } from '@evtivity/lib';
 
 const settings = JSON.parse(process.env.SETTINGS_JSON ?? '{}');
-const key = process.env.SETTINGS_ENCRYPTION_KEY;
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 
 try {
   let count = 0;
   for (const [name, value] of Object.entries(settings)) {
     if (value === '' || value === null || value === undefined) continue;
-    const stored = name.endsWith('Enc') && typeof value === 'string' ? encryptString(value, key) : value;
-    const json = JSON.stringify(stored);
+    const json = JSON.stringify(value);
     await sql.unsafe(
       'INSERT INTO settings (key, value) VALUES ($1, $2::jsonb) ' +
         'ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = now()',
@@ -88,6 +84,63 @@ try {
     count++;
   }
   console.log('[settings] upserted ' + String(count) + ' settings');
+} finally {
+  await sql.end();
+}
+`;
+
+/**
+ * Migration 0001 seeds simulator stations whose target is the Docker Compose
+ * OCPP hostname. On AWS that name does not resolve, so the simulator retries
+ * them forever. Points only those rows at the internal OCPP service.
+ */
+export const SIMULATOR_TARGETS_JS = `
+import postgres from 'postgres';
+
+const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+try {
+  const plain = await sql.unsafe(
+    'UPDATE css_stations SET target_url = $1, updated_at = now() WHERE target_url = $2',
+    [process.env.SIM_OCPP_URL, 'ws://ocpp:7103'],
+  );
+  const tls = await sql.unsafe(
+    'UPDATE css_stations SET target_url = $1, updated_at = now() WHERE target_url = $2',
+    [process.env.SIM_OCPP_TLS_URL, 'wss://ocpp:8443'],
+  );
+  console.log('[simulator] repointed ' + String(plain.count + tls.count) + ' Docker Compose targets');
+} finally {
+  await sql.end();
+}
+`;
+
+/**
+ * Saves the settings table to SETTINGS_SNAPSHOT (argument "save") or writes
+ * the saved values back (argument "restore"). The demo seed upserts its
+ * Docker Compose defaults (SMTP on localhost:1025, an FTP host named ftp)
+ * over every setting. Restoring keeps the settings added by the seed and
+ * undoes its changes to existing ones.
+ */
+export const SETTINGS_SNAPSHOT_JS = `
+import { readFileSync, writeFileSync } from 'node:fs';
+import postgres from 'postgres';
+
+const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+const file = process.env.SETTINGS_SNAPSHOT;
+try {
+  if (process.argv[1] === 'save') {
+    const rows = await sql.unsafe('SELECT key, value FROM settings');
+    writeFileSync(file, JSON.stringify(rows));
+    console.log('[settings] saved ' + String(rows.length) + ' settings');
+  } else {
+    const rows = JSON.parse(readFileSync(file, 'utf8'));
+    for (const row of rows) {
+      await sql.unsafe(
+        'UPDATE settings SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND value IS DISTINCT FROM $2::jsonb',
+        [row.key, JSON.stringify(row.value)],
+      );
+    }
+    console.log('[settings] restored ' + String(rows.length) + ' settings');
+  }
 } finally {
   await sql.end();
 }
@@ -105,6 +158,8 @@ export const DB_JOB_SH = [
   'npm run seed:admin',
   'echo "[db-job] settings"',
   'node --input-type=module -e "$SEED_SETTINGS_JS"',
+  'echo "[db-job] simulator targets"',
+  'node --input-type=module -e "$SIMULATOR_TARGETS_JS"',
   'echo "[db-job] done"',
 ].join('\n');
 
@@ -167,11 +222,14 @@ try {
 export const SEED_DEMO_SH = [
   'set -eu',
   'cd /app/packages/database',
+  'node --input-type=module -e "$SETTINGS_SNAPSHOT_JS" save',
   'echo "[demo] seed"',
   'SEED_DEMO=true npm run seed',
+  // The seed overwrites every default setting. Put the previous values back,
+  // then the configured ones.
+  'node --input-type=module -e "$SETTINGS_SNAPSHOT_JS" restore',
   'echo "[demo] passwords and simulator limit"',
   'node --input-type=module -e "$SEED_DEMO_POST_JS"',
-  // The seed overwrites every default setting. Put the configured ones back.
   'echo "[demo] settings"',
   'node --input-type=module -e "$SEED_SETTINGS_JS"',
   'echo "[demo] done"',

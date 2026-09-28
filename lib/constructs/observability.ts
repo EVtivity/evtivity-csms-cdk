@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   Aws,
   Duration,
+  Stack,
   aws_aps as aps,
   aws_ec2 as ec2,
   aws_ecs as ecs,
@@ -14,6 +15,7 @@ import {
   aws_elasticloadbalancingv2 as elbv2,
   aws_iam as iam,
   aws_lambda as lambda,
+  aws_lambda_destinations as lambdaDestinations,
   aws_lambda_nodejs as lambdaNodejs,
   aws_logs as logs,
   aws_logs_destinations as logDestinations,
@@ -23,6 +25,7 @@ import {
   aws_s3_deployment as s3deploy,
   aws_secretsmanager as secretsmanager,
   aws_sns as sns,
+  aws_sqs as sqs,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { API_METRICS_PORT, GRAFANA_PORT, LOKI_PORT, discoveryName } from '../catalog.js';
@@ -108,6 +111,8 @@ interface ServiceOptions {
  */
 export class Observability extends Construct {
   readonly grafanaHost: string;
+  /** Pushes CloudWatch log events to Loki. Monitoring alarms on its errors. */
+  readonly lokiForwarder: lambda.IFunction;
   private readonly props: ObservabilityProps;
   private readonly fileSystem: efs.FileSystem;
 
@@ -300,8 +305,25 @@ export class Observability extends Construct {
       '        settings:',
       `          topic_arn: ${alertTopic.topicArn}`,
       `          subject: '[${config.env}] {{ template "default.title" . }}'`,
+      `          message: '{{ template "evtivity.sns.message" . }}'`,
       '          sigv4:',
       `            region: ${Aws.REGION}`,
+    ].join('\n');
+    // Grafana's default message template reads `.Values`, which the SNS
+    // notifier's alert data does not have, so every SNS message logged a
+    // template error. This one uses only standard alert fields.
+    const templates = [
+      'apiVersion: 1',
+      'templates:',
+      '  - orgId: 1',
+      '    name: evtivity-sns',
+      '    template: |',
+      '      {{ define "evtivity.sns.message" }}{{ range .Alerts }}[{{ .Status }}] {{ .Labels.alertname }}',
+      '      {{ with .Annotations.summary }}{{ . }}',
+      '      {{ end }}{{ with .Annotations.description }}{{ . }}',
+      '      {{ end }}{{ with .GeneratorURL }}{{ . }}',
+      '      {{ end }}',
+      '      {{ end }}{{ end }}',
     ].join('\n');
 
     const provisioning = new s3deploy.BucketDeployment(this, 'GrafanaProvisioning', {
@@ -311,6 +333,7 @@ export class Observability extends Construct {
         s3deploy.Source.asset(ASSET_DIR),
         s3deploy.Source.data('provisioning/datasources/datasources.yml', datasources),
         s3deploy.Source.data('provisioning/alerting/contactpoints.yml', contactPoints),
+        s3deploy.Source.data('provisioning/alerting/templates.yml', templates),
       ],
       prune: true,
       retainOnDelete: false,
@@ -354,7 +377,13 @@ export class Observability extends Construct {
         AWS_REGION: Aws.REGION,
         // Changes to the dashboards or alert files roll the service so
         // Grafana re-reads its provisioning.
-        PROVISIONING_REVISION: hashDirectory(ASSET_DIR, datasources + contactPoints),
+        // Resolve the tokens (AMP endpoint, topic ARN) to their CloudFormation
+        // form first. Unresolved token strings carry a global counter that
+        // shifts when unrelated constructs change, which would restart Grafana.
+        PROVISIONING_REVISION: hashDirectory(
+          ASSET_DIR,
+          JSON.stringify(Stack.of(this).resolve([datasources, contactPoints, templates])),
+        ),
       },
       secrets: { GF_SECURITY_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(adminSecret) },
       mounts: [{ kind: 'efs', path: grafanaHome, accessPoint: grafanaAp }],
@@ -415,7 +444,7 @@ export class Observability extends Construct {
       retention: config.logs.retentionDays,
       removalPolicy: removalPolicyOf(config.logs.removal),
     });
-    const forwarder = new lambdaNodejs.NodejsFunction(this, 'LokiForwarder', {
+    const forwarder = (this.lokiForwarder = new lambdaNodejs.NodejsFunction(this, 'LokiForwarder', {
       entry: join(import.meta.dirname, '../../lambda/loki-forwarder.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -436,14 +465,26 @@ export class Observability extends Construct {
         ),
       },
       bundling: { minify: true, sourceMap: false, target: 'node24' },
-    });
+      // Batches that still fail after the retries (Loki down for longer
+      // than a redeploy) land here instead of disappearing. CloudWatch
+      // Logs keeps the originals either way.
+      onFailure: new lambdaDestinations.SqsDestination(
+        new sqs.Queue(this, 'ForwarderFailures', {
+          queueName: `${prefix}-loki-forwarder-failures`,
+          encryption: sqs.QueueEncryption.SQS_MANAGED,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+        }),
+      ),
+      retryAttempts: 2,
+    }));
     const destination = new logDestinations.LambdaDestination(forwarder);
     for (const [label, group] of Object.entries(props.logGroups)) {
       new logs.SubscriptionFilter(this, `Forward-${label}`, {
         logGroup: group,
         destination,
         filterPattern: logs.FilterPattern.allEvents(),
-        filterName: `${prefix}-loki`,
+        filterName: `${prefix}-loki-forwarder`,
       });
     }
     forwarder.node.addDependency(loki.service);
@@ -584,6 +625,8 @@ export class Observability extends Construct {
           `mkdir -p ${home}/tmp ${home}/provisioning ${home}/dashboards`,
           `aws s3 sync --delete --only-show-errors "s3://$BUCKET/grafana/provisioning" ${home}/provisioning`,
           `aws s3 sync --delete --only-show-errors "s3://$BUCKET/grafana/dashboards" ${home}/dashboards`,
+          // Grafana logs an error at start when this directory is missing.
+          `mkdir -p ${home}/provisioning/plugins`,
           'echo provisioning ready',
         ].join('\n'),
       ],

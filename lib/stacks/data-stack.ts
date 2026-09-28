@@ -62,7 +62,9 @@ export class DataStack extends Stack {
   readonly settingsKeySecret: secretsmanager.Secret;
   readonly initialAdminSecret: secretsmanager.Secret;
   readonly databaseName = 'evtivity';
-  readonly masterUsername = MASTER_USERNAME;
+  /** Aurora's exported PostgreSQL log and the Valkey slow log. */
+  readonly postgresLogs: logs.LogGroup;
+  readonly valkeySlowLog: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -112,20 +114,37 @@ export class DataStack extends Stack {
       excludeCharacters: PASSWORD_EXCLUDE,
     });
 
-    const instance = (name: string, isReader: boolean): rds.IClusterInstance =>
+    // Readers go to the AZs after the first, so they do not all land next
+    // to a writer that RDS placed in the first AZ. The writer stays
+    // unpinned: setting the AZ on an existing writer replaces it.
+    const azs = config.vpc.availabilityZones;
+    const placement = (index: number): { availabilityZone?: string } =>
+      index > 0 ? { availabilityZone: azs[index % azs.length] ?? '' } : {};
+    const instance = (name: string, isReader: boolean, index: number): rds.IClusterInstance =>
       a.mode === 'serverless'
         ? rds.ClusterInstance.serverlessV2(name, {
             publiclyAccessible: false,
             autoMinorVersionUpgrade: true,
             scaleWithWriter: isReader,
             enablePerformanceInsights: a.performanceInsights,
+            ...placement(index),
           })
         : rds.ClusterInstance.provisioned(name, {
             instanceType: new ec2.InstanceType(a.instanceClass),
             publiclyAccessible: false,
             autoMinorVersionUpgrade: true,
             enablePerformanceInsights: a.performanceInsights,
+            ...placement(index),
           });
+
+    // Aurora writes its exported log here. Owning the group sets its
+    // retention and deletes it with the stack. Otherwise RDS creates it on
+    // first write with no retention, and it outlives the environment.
+    this.postgresLogs = new logs.LogGroup(this, 'PostgresLogs', {
+      logGroupName: `/aws/rds/cluster/${prefix}/postgresql`,
+      retention: config.logs.retentionDays,
+      removalPolicy: removalPolicyOf(config.logs.removal),
+    });
 
     this.cluster = new rds.DatabaseCluster(this, 'Aurora', {
       engine,
@@ -136,9 +155,9 @@ export class DataStack extends Stack {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [auroraSg],
-      writer: instance('writer', false),
+      writer: instance('writer', false, 0),
       readers: Array.from({ length: a.readers }, (_, i) =>
-        instance(`reader${String(i + 1)}`, true),
+        instance(`reader${String(i + 1)}`, true, i + 1),
       ),
       ...(a.mode === 'serverless' && {
         serverlessV2MinCapacity: a.minCapacity,
@@ -160,12 +179,13 @@ export class DataStack extends Stack {
       removalPolicy: removalPolicyOf(a.removal),
       iamAuthentication: a.iamAuthentication,
       cloudwatchLogsExports: ['postgresql'],
-      cloudwatchLogsRetention: config.logs.retentionDays,
       enablePerformanceInsights: a.performanceInsights,
       ...(a.monitoringIntervalSeconds > 0 && {
         monitoringInterval: Duration.seconds(a.monitoringIntervalSeconds),
       }),
     });
+
+    this.cluster.node.addDependency(this.postgresLogs);
 
     const appSecret = new rds.DatabaseSecret(this, 'AppDbSecret', {
       secretName: `${sp}/db-app`,
@@ -174,6 +194,10 @@ export class DataStack extends Stack {
       excludeCharacters: PASSWORD_EXCLUDE,
     });
     this.appDbSecret = appSecret.attach(this.cluster);
+    // With secrets.removal: retain, a retained database snapshot keeps its
+    // roles. Keep their passwords too, or a rebuild needs manual resets.
+    this.masterSecret.applyRemovalPolicy(secretRemoval);
+    appSecret.applyRemovalPolicy(secretRemoval);
 
     if (config.rotation.enabled) {
       const automaticallyAfter = Duration.days(config.rotation.databaseDays);
@@ -187,14 +211,25 @@ export class DataStack extends Stack {
         securityGroups: [rotationSg],
         excludeCharacters: PASSWORD_EXCLUDE,
       };
-      clusterSecret.addRotationSchedule('MasterRotation', {
+      // The hosted rotation functions log to /aws/lambda/<functionName>.
+      // Own those groups so they get retention and go away with the stack.
+      const rotationLogs = (name: string): logs.LogGroup =>
+        new logs.LogGroup(this, `${name}Logs`, {
+          logGroupName: `/aws/lambda/${prefix}-${name}`,
+          retention: config.logs.retentionDays,
+          removalPolicy: removalPolicyOf(config.logs.removal),
+        });
+      const masterLogs = rotationLogs('db-master-rotation');
+      const appLogs = rotationLogs('db-app-rotation');
+      const masterRotation = clusterSecret.addRotationSchedule('MasterRotation', {
         hostedRotation: secretsmanager.HostedRotation.postgreSqlSingleUser({
           ...network,
           functionName: `${prefix}-db-master-rotation`,
         }),
         automaticallyAfter,
       });
-      this.appDbSecret.addRotationSchedule('AppDbRotation', {
+      masterRotation.node.addDependency(masterLogs);
+      const appRotation = this.appDbSecret.addRotationSchedule('AppDbRotation', {
         hostedRotation: secretsmanager.HostedRotation.postgreSqlMultiUser({
           ...network,
           masterSecret: clusterSecret,
@@ -206,6 +241,7 @@ export class DataStack extends Stack {
         // before the job runs would give the clone no privileges.
         rotateImmediatelyOnUpdate: false,
       });
+      appRotation.node.addDependency(appLogs);
     }
 
     // --- ElastiCache Valkey ---
@@ -226,13 +262,19 @@ export class DataStack extends Stack {
         passwordLength: 64,
         excludeCharacters: PASSWORD_EXCLUDE,
       },
+      removalPolicy: secretRemoval,
     });
 
     const cacheUser = new elasticache.CfnUser(this, 'CacheUser', {
       userId: cacheUserId,
       userName: CACHE_USERNAME,
       engine: 'valkey',
-      accessString: 'on ~* &* +@all',
+      // Everything the services use (BullMQ scripts, pub/sub, SCAN), without
+      // admin and dangerous commands such as FLUSHALL, CONFIG, DEBUG, and
+      // KEYS. BullMQ reads the server version with INFO.
+      // Changing this updates the user, which also resets its passwords to
+      // the current secret: redeploy services after a change.
+      accessString: 'on ~* &* +@all -@dangerous +info',
       // Initial password only. After a rotation the user holds the current
       // and pending passwords, set by the rotation function.
       passwords: [this.cacheSecret.secretValueFromJson('password').unsafeUnwrap()],
@@ -262,11 +304,11 @@ export class DataStack extends Stack {
       },
     });
 
-    const slowLog = new logs.LogGroup(this, 'ValkeySlowLog', {
+    const slowLog = (this.valkeySlowLog = new logs.LogGroup(this, 'ValkeySlowLog', {
       logGroupName: `/evtivity/${config.env}/valkey-slow-log`,
       retention: config.logs.retentionDays,
       removalPolicy: removalPolicyOf(config.logs.removal),
-    });
+    }));
 
     const replicated = config.valkey.replicas > 0;
     const valkey = new elasticache.CfnReplicationGroup(this, 'Valkey', {

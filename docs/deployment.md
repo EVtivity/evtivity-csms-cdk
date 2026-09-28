@@ -13,7 +13,7 @@
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `Evtivity-<Env>-Network` | VPC, NAT (fck-nat or gateway), flow logs, S3 gateway endpoint, ALB/task/NLB security groups |
 | `Evtivity-<Env>-Domain`  | ACM certificate for `<zone>` and `*.<zone>`                                                 |
-| `Evtivity-<Env>-Storage` | Logs bucket and app bucket                                                                  |
+| `Evtivity-<Env>-Storage` | Logs bucket (ALB, S3 access, and VPC flow logs), app bucket, Grafana and Loki buckets       |
 | `Evtivity-<Env>-Data`    | Aurora PostgreSQL, Valkey, secrets, rotation                                                |
 | `Evtivity-<Env>-Alb`     | ALB, listeners, WAF                                                                         |
 | `Evtivity-<Env>-App`     | ECS cluster, database job, services, DNS records, OCPP TLS NLB, redeploy schedules, alarms  |
@@ -45,9 +45,26 @@ First sign-in: the admin email is `initialAdmin.email`. The password is in the `
 aws secretsmanager get-secret-value --secret-id evtivity/dev/initial-admin --query SecretString --output text
 ```
 
+## Upgrading an environment deployed before these changes
+
+One-time steps before the first deploy of this version to an environment that already exists:
+
+1. These log groups are now created by the stacks. Delete the ones AWS created earlier (or import them into the Data stack), or the deploy fails with "already exists":
+   - `/aws/rds/cluster/evtivity-<env>/postgresql`
+   - `/aws/lambda/evtivity-<env>-db-master-rotation`
+   - `/aws/lambda/evtivity-<env>-db-app-rotation`
+
+   Deleting the PostgreSQL group also deletes the Loki subscription filter on it. This version renames the filters (`evtivity-<env>-loki-forwarder`), so the deploy creates new ones instead of updating the missing one.
+
+2. Remove `vpc.flowLogRetentionDays` from your config files and `CDK_LOCAL_CONFIG`. Flow logs now go to the logs bucket and follow `storage.logsExpirationDays`.
+3. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
+4. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
+
 ## Configuration
 
-`config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides.
+`config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides. An empty or comment-only local file is fine.
+
+Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
 
 Common changes:
 
@@ -65,7 +82,9 @@ Common changes:
 | Rotation                         | `rotation.*Days`, `ecs.redeployEveryDays` (must be shorter)       |
 | Settings table values            | `appSettings` (non-secret keys only)                              |
 
-Stop a lower environment without deleting it: set `desiredCount: 0` on every service and deploy. With `aurora.minCapacity: 0`, Aurora pauses after `aurora.autoPauseSeconds` without connections, leaving the ALB, NAT, Valkey, and secrets as the idle cost.
+Aurora readers are pinned to the availability zones after the first (`vpc.availabilityZones`), so an AZ outage leaves a reader running. The writer is never pinned, because setting its AZ would replace it. Pinning a reader that already exists in another AZ replaces that reader once, with no writer failover.
+
+Stop a lower environment without deleting it: set `desiredCount: 0` on every service (with autoscaling, also `autoscaling.min: 0`) and deploy. With `aurora.minCapacity: 0`, Aurora pauses after `aurora.autoPauseSeconds` without connections, leaving the ALB, NAT, Valkey, and secrets as the idle cost.
 
 ## Credential rotation
 
@@ -156,33 +175,9 @@ aws secretsmanager get-secret-value --secret-id evtivity/dev/demo-password \
 
 Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
 
-## Observability: `observability.enabled`
+## Observability and alerts
 
-Runs the same monitoring stack as the Helm chart, with the same dashboards (system metrics, business metrics, logs, alerts) and the same 12 Grafana alert rules:
-
-| Component  | How it runs on AWS                                                                                                                                                                                                 |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prometheus | Agent mode on Fargate. Scrapes the API's `/metrics` (port 9091) through Cloud Map and remote-writes to Amazon Managed Service for Prometheus.                                                                      |
-| Loki       | Single binary on Fargate. Chunks and indexes in the `loki` bucket, WAL on EFS, retention `observability.loki.retentionDays`.                                                                                       |
-| Log intake | A Lambda subscribed to each service's CloudWatch log group pushes events to Loki with the `service` label the logs dashboard filters on.                                                                           |
-| Grafana    | Fargate with its database on EFS. Provisioned at start from the `grafana` bucket: dashboards and alert rules from the CSMS repo, generated datasources (AMP through the task role, Loki) and an SNS contact point. |
-| Alerts     | Grafana publishes to the environment's `evtivity-<env>-alerts` SNS topic, shared with the CloudWatch alarms. Set `monitoring.alarmEmail` to subscribe an address (the recipient must confirm).                     |
-
-Access: `grafana.<zone>` always routes to Grafana, and the ALB's web ACL blocks every source address outside the WAF IP set `evtivity-<env>-grafana-allow`. Edit that set at any time, no deploy needed, and changes apply within seconds:
-
-```bash
-export AWS_PROFILE=<name>
-./scripts/grafana-access.sh dev list
-./scripts/grafana-access.sh dev add me              # this machine's public IP
-./scripts/grafana-access.sh dev add 203.0.113.0/24  # an office or VPN range
-./scripts/grafana-access.sh dev remove 203.0.113.0/24
-```
-
-`observability.grafana.allowedCidrs` seeds the set when it is first created. Changing that list later replaces the set's contents on the next deploy, including addresses added with the script, so keep the list empty or in sync. Environments without `waf.enabled` get a web ACL with only this rule (about $6 per month).
-
-Sign in as `admin` with the password from `evtivity/<env>/grafana-admin`.
-
-Dashboard and alert changes: edit them in the CSMS repo's `prometheus/grafana/`, then run `./scripts/sync-observability.sh <csms repo>/prometheus/grafana` here and deploy. The deploy uploads the files and restarts Grafana when their content changed.
+Grafana (with the Helm chart's dashboards and alert rules), the CloudWatch dashboards and alarms, the alerts topic, and Grafana access are covered in [observability.md](observability.md).
 
 ## Updating the fck-nat AMI
 
@@ -206,6 +201,6 @@ With the dev settings (`removal: destroy` everywhere) this deletes all data. Pro
 
 ## GitHub Actions
 
-- `ci.yml` (pull requests): typecheck, lint, compliance tests, and `cdk synth` for every environment. No AWS credentials needed.
+- `ci.yml` (pull requests and pushes to `main`): typecheck, lint, and the tests once (they synthesize every environment and run cdk-nag), then a full `cdk synth` per environment to bundle the Lambda functions. No AWS credentials needed.
 - `release.yml` (push to `main` that changes `package.json`, or manual): tags `v<version>` and publishes a GitHub release with a changelog from conventional commits. The CSMS release workflow bumps `package.json` and `image.tag` on every CSMS release, so each CSMS version gets a matching CDK release, the same as the Helm chart.
-- `deploy.yml` (manual): writes `config/<env>.local.yaml` from the repository variables `AWS_ACCOUNT_ID`, `HOSTED_ZONE_ID`, and `INITIAL_ADMIN_EMAIL` of the chosen GitHub environment, assumes `AWS_DEPLOY_ROLE_ARN` through OIDC, then diffs and deploys. Give the `prod` environment required reviewers.
+- `deploy.yml` (manual, choose an environment and a stack or `all`): writes `config/<env>.local.yaml` from the `CDK_LOCAL_CONFIG` variable of the chosen GitHub environment (the whole YAML file, the same one you keep locally, validated as strictly as the committed config, so a removed or misspelled key fails the deploy), runs the checks, assumes `AWS_DEPLOY_ROLE_ARN` through OIDC in `AWS_REGION` (default `us-east-1`), then synthesizes once, diffs every stack, and deploys that same output. Only one deploy per environment runs at a time. Give the `prod` environment required reviewers.

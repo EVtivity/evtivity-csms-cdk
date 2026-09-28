@@ -11,9 +11,11 @@ on:
       - package.json
   workflow_dispatch:
 
+# Queue instead of cancel: cancelling after the tag push but before the
+# release is created would leave a tag with no release.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -23,7 +25,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -33,36 +35,53 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Check if tag already exists
+      - name: Check tag and release
         id: check
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.version }}
         run: |
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "tag=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "tag=false" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Generate changelog
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.release == 'false'
         id: changelog
+        env:
+          TAG: ${{ steps.version.outputs.version }}
         run: |
-          PREV=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-          BODY=$(./scripts/generate-changelog.sh "$PREV" HEAD)
+          # On a rerun where the tag already exists, stop the notes at the tag.
+          END=HEAD
+          if git rev-parse "$TAG" >/dev/null 2>&1; then END="$TAG"; fi
+          PREV=$(git tag -l 'v*' --sort=-v:refname | grep -vx "$TAG" | grep -v -- '-' | head -n1)
+          BODY=$(./scripts/generate-changelog.sh "$PREV" "$END")
           {
             echo "body<<CHANGELOG_EOF"
             echo "$BODY"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create tag and release
-        if: steps.check.outputs.exists == 'false'
+      # Each part runs only if missing, so a rerun finishes a half-done release.
+      - name: Create tag
+        if: steps.check.outputs.tag == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create release
+        if: steps.check.outputs.release == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.version }}
           RELEASE_NOTES: ${{ steps.changelog.outputs.body }}
-        run: |
-          git tag "$TAG"
-          git push origin "$TAG"
-          gh release create "$TAG" --notes "$RELEASE_NOTES"
+        run: gh release create "$TAG" --verify-tag --notes "$RELEASE_NOTES"

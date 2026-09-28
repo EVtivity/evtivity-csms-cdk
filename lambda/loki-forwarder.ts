@@ -57,6 +57,17 @@ export async function handler(event: SubscriptionEvent): Promise<void> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
+    // 400 (sample too old, line too long) and 413 (batch too large) fail the
+    // same way on every retry. Log and drop the batch. Anything else, such as
+    // 401, 403, or 404 from a misconfiguration, throws so the retries, the
+    // failure queue, and the error alarm see it.
+    if (res.status === 400 || res.status === 413) {
+      console.error(
+        `Loki rejected ${String(payload.logEvents.length)} events from ${payload.logGroup}: ` +
+          `${String(res.status)} ${await res.text()}`,
+      );
+      return;
+    }
     // Throwing makes Lambda retry the asynchronous invocation. The events
     // remain in CloudWatch Logs regardless.
     throw new Error(

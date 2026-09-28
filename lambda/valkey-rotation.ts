@@ -75,16 +75,16 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-async function waitForUserActive(userId: string): Promise<void> {
+async function waitForUserActive(userId: string, minutes: number): Promise<void> {
   // ModifyUser is asynchronous. The user returns to `active` once every cache
   // node in its user groups has applied the change.
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < minutes * 6; i++) {
     const res = await ec.send(new DescribeUsersCommand({ UserId: userId }));
     const status = res.Users?.[0]?.Status;
     if (status === 'active') return;
     await sleep(10_000);
   }
-  throw new Error(`user ${userId} did not return to active within 10 minutes`);
+  throw new Error(`user ${userId} did not return to active within ${String(minutes)} minutes`);
 }
 
 function bulk(value: string): string {
@@ -113,6 +113,11 @@ function tryAuth(host: string, port: number, username: string, password: string)
       reject(new Error(`timed out connecting to ${host}:${String(port)}`));
     });
     socket.on('error', reject);
+    // Settles nothing if a reply already resolved. Otherwise the server hung
+    // up without answering, and the promise would wait for the function timeout.
+    socket.on('close', () => {
+      reject(new Error(`${host}:${String(port)} closed the connection without a reply`));
+    });
   });
 }
 
@@ -147,9 +152,12 @@ async function setSecret(secretId: string, token: string): Promise<void> {
   const current = await getSecret(secretId, 'AWSCURRENT');
   const pending = await getSecret(secretId, 'AWSPENDING', token);
   const passwords = [...new Set([current.password, pending.password])];
-  await waitForUserActive(userId);
+  // Both waits together stay under the 12-minute function timeout. If either
+  // runs out, Secrets Manager retries this step, and ModifyUser with the
+  // same passwords is safe to repeat.
+  await waitForUserActive(userId, 4);
   await ec.send(new ModifyUserCommand({ UserId: userId, Passwords: passwords }));
-  await waitForUserActive(userId);
+  await waitForUserActive(userId, 6);
 }
 
 async function testSecret(secretId: string, token: string): Promise<void> {
@@ -162,7 +170,7 @@ async function testSecret(secretId: string, token: string): Promise<void> {
   for (let i = 0; i < 6; i++) {
     reply = await tryAuth(host, port, pending.username, pending.password);
     if (reply === '+OK') return;
-    await sleep(10_000);
+    if (i < 5) await sleep(10_000);
   }
   throw new Error(`AUTH with the pending password failed: ${reply}`);
 }

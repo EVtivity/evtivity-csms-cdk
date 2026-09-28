@@ -30,17 +30,19 @@ const logRetentionDays = z
 const envMap = z.record(z.string(), z.string()).default({});
 
 const autoscaling = z
-  .object({
+  .strictObject({
     min: z.number().int().min(0),
     max: z.number().int().min(1),
     cpuTargetPercent: z.number().int().min(10).max(95).default(70),
-    memoryTargetPercent: z.number().int().min(10).max(95).default(75),
+    // Above the 75% Node heap limit, so a heap that has grown and stays
+    // allocated does not block scale-in.
+    memoryTargetPercent: z.number().int().min(10).max(95).default(85),
     scaleInCooldownSeconds: z.number().int().min(0).default(120),
     scaleOutCooldownSeconds: z.number().int().min(0).default(60),
   })
   .refine((a) => a.max >= a.min, { message: 'autoscaling.max must be >= autoscaling.min' });
 
-const serviceConfig = z.object({
+const serviceConfig = z.strictObject({
   enabled: z.boolean().default(false),
   // Overrides for the global image settings, e.g. to pin one service.
   imageTag: z.string().min(1).optional(),
@@ -80,7 +82,7 @@ const serviceConfig = z.object({
 export type ServiceConfig = z.infer<typeof serviceConfig>;
 
 const servicesSchema = z
-  .object(
+  .strictObject(
     Object.fromEntries(SERVICE_NAMES.map((n) => [n, serviceConfig.prefault({})])) as Record<
       ServiceName,
       z.ZodPrefault<typeof serviceConfig>
@@ -89,20 +91,20 @@ const servicesSchema = z
   .strict();
 
 export const configSchema = z
-  .object({
+  .strictObject({
     env: envName,
     account: z.string().regex(/^\d{12}$/, 'AWS account must be 12 digits'),
     region: z.string().default('us-east-1'),
 
     // Container images. Services resolve `<registry>/<component>:<tag>`.
-    image: z.object({
+    image: z.strictObject({
       registry: z.string().default('ghcr.io/evtivity/evtivity-csms'),
       tag: z
         .string()
         .regex(/^[0-9][0-9A-Za-z._-]*$/, 'image.tag is a version such as 0.1.20 (no leading v)'),
     }),
 
-    domain: z.object({
+    domain: z.strictObject({
       apex: z.string().min(1),
       // Empty puts services on the apex (csms.evtivity.com). Non-empty adds a
       // per-env label (csms.dev.evtivity.com).
@@ -117,7 +119,7 @@ export const configSchema = z
     // CreatedDate. Set it once and never change it.
     createdDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'createdDate is YYYY-MM-DD'),
 
-    vpc: z.object({
+    vpc: z.strictObject({
       cidr: z.string().regex(/^\d+\.\d+\.\d+\.\d+\/\d+$/, 'CIDR notation required'),
       // Listed explicitly so synth needs no AWS credentials or context lookups.
       availabilityZones: z
@@ -125,7 +127,7 @@ export const configSchema = z
         .min(2)
         .max(3),
       nat: z
-        .object({
+        .strictObject({
           // fck-nat runs NAT on a t4g.nano instance for about $3/month. A NAT
           // gateway is managed and highly available but costs about
           // $33/month per gateway plus $0.045 per GB.
@@ -156,18 +158,17 @@ export const configSchema = z
           ]),
         )
         .default([]),
-      flowLogRetentionDays: logRetentionDays.default(30),
     }),
 
     logs: z
-      .object({
+      .strictObject({
         retentionDays: logRetentionDays.default(30),
         removal: z.enum(['destroy', 'retain']).default('destroy'),
       })
       .prefault({}),
 
     ecs: z
-      .object({
+      .strictObject({
         // Enhanced observability bills per metric. `enabled` keeps the
         // standard Container Insights metrics that ECS.12 requires.
         containerInsights: z.enum(['enabled', 'enhanced']).default('enabled'),
@@ -179,7 +180,7 @@ export const configSchema = z
       })
       .prefault({}),
 
-    aurora: z.object({
+    aurora: z.strictObject({
       engineVersion: z.string().default('17.9'),
       // serverless: Serverless v2 instances that scale in ACUs.
       // provisioned: fixed instance classes, cheaper at steady high load.
@@ -209,7 +210,7 @@ export const configSchema = z
       poolMax: z.number().int().min(1).default(10),
     }),
 
-    valkey: z.object({
+    valkey: z.strictObject({
       engineVersion: z.string().default('8.2'),
       nodeType: z.string().default('cache.t4g.micro'),
       replicas: z.number().int().min(0).max(5).default(0),
@@ -222,7 +223,7 @@ export const configSchema = z
     }),
 
     rotation: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(true),
         databaseDays: z.number().int().min(1).max(365).default(30),
         cacheDays: z.number().int().min(1).max(365).default(30),
@@ -230,7 +231,7 @@ export const configSchema = z
       .prefault({}),
 
     secrets: z
-      .object({
+      .strictObject({
         // retain keeps JWT_SECRET, SETTINGS_ENCRYPTION_KEY, and the initial
         // admin secret when the stack is deleted, so data encrypted with the
         // settings key stays readable after a rebuild on a retained database.
@@ -239,7 +240,7 @@ export const configSchema = z
       .prefault({}),
 
     storage: z
-      .object({
+      .strictObject({
         versioned: z.boolean().default(true),
         noncurrentVersionExpirationDays: z.number().int().min(1).default(30),
         logsExpirationDays: z.number().int().min(1).default(30),
@@ -249,7 +250,7 @@ export const configSchema = z
       .prefault({}),
 
     alb: z
-      .object({
+      .strictObject({
         // WebSockets stay open past this only while frames flow. OCPP
         // heartbeats and pings keep station connections alive.
         idleTimeoutSeconds: z.number().int().min(1).max(4000).default(120),
@@ -261,7 +262,7 @@ export const configSchema = z
       .prefault({}),
 
     waf: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(false),
         rateLimitPer5Min: z.number().int().min(100).default(2000),
         blockCountries: z.array(z.string().length(2)).default([]),
@@ -275,7 +276,7 @@ export const configSchema = z
     // SP3 mutual TLS for OCPP on an NLB with TCP passthrough. The secret
     // holds JSON keys cert, key, ca (PEM strings).
     ocppTls: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(false),
         secretName: z.string().optional(),
         port: z.number().int().min(1).max(65535).default(8443),
@@ -284,21 +285,21 @@ export const configSchema = z
       .prefault({}),
     // Client certificate for the charging station simulator (SP3 testing).
     cssTls: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(false),
         secretName: z.string().optional(),
       })
       .prefault({}),
 
     ocpi: z
-      .object({
+      .strictObject({
         countryCode: z.string().length(2).default('US'),
         partyId: z.string().min(1).max(3).default('EVT'),
         businessName: z.string().default('EVtivity'),
       })
       .prefault({}),
 
-    initialAdmin: z.object({ email: z.email() }),
+    initialAdmin: z.strictObject({ email: z.email() }),
 
     // Values upserted into the settings table on every database job run.
     // Non-secret settings only. Enter credentials in the dashboard.
@@ -311,7 +312,7 @@ export const configSchema = z
     // from evtivity/<env>/demo-password, and operators must change it at
     // first sign-in. Not allowed in prod.
     seedDemo: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(false),
         revision: z.number().int().min(1).default(1),
         // Seeded simulator stations left enabled for the css service. The
@@ -321,7 +322,7 @@ export const configSchema = z
       .prefault({}),
 
     monitoring: z
-      .object({
+      .strictObject({
         dashboard: z.boolean().default(true),
         alarms: z.boolean().default(true),
         alarmEmail: z.email().optional(),
@@ -333,10 +334,10 @@ export const configSchema = z
     // Managed Service for Prometheus, Loki stores chunks in S3, and a Lambda
     // forwards the services' CloudWatch logs to Loki.
     observability: z
-      .object({
+      .strictObject({
         enabled: z.boolean().default(false),
         grafana: z
-          .object({
+          .strictObject({
             version: z.string().default('11.5.2'),
             hostname: z
               .string()
@@ -353,7 +354,7 @@ export const configSchema = z
           })
           .prefault({}),
         prometheus: z
-          .object({
+          .strictObject({
             version: z.string().default('v3.2.1'),
             scrapeIntervalSeconds: z.number().int().min(10).default(60),
             cpu: fargateCpu.default(256),
@@ -362,7 +363,7 @@ export const configSchema = z
           })
           .prefault({}),
         loki: z
-          .object({
+          .strictObject({
             version: z.string().default('3.4.2'),
             retentionDays: z.number().int().min(1).default(30),
             cpu: fargateCpu.default(256),
@@ -415,6 +416,37 @@ export const configSchema = z
           code: 'custom',
           path: ['ocppTls', 'secretName'],
           message: 'required when ocppTls.enabled',
+        });
+      }
+    }
+    for (const name of SERVICE_NAMES) {
+      const sc = c.services[name];
+      // With autoscaling the template carries no task count, so a different
+      // desiredCount would silently do nothing.
+      if (sc.autoscaling != null && sc.desiredCount !== sc.autoscaling.min) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', name, 'desiredCount'],
+          message: 'with autoscaling, set desiredCount equal to autoscaling.min',
+        });
+      }
+    }
+    for (const key of Object.keys(c.appSettings)) {
+      if (key.endsWith('Enc')) {
+        // The value would sit in plaintext in the task definition and template.
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: 'credentials (keys ending in Enc) must be entered in the dashboard',
+        });
+      }
+    }
+    for (const az of c.vpc.availabilityZones) {
+      if (!az.startsWith(c.region)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['vpc', 'availabilityZones'],
+          message: `${az} is not in region ${c.region}`,
         });
       }
     }

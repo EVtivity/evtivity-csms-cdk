@@ -30,8 +30,6 @@ export interface StorageStackProps extends StackProps {
 export class StorageStack extends Stack {
   readonly logsBucket: SecureBucket;
   readonly appBucket: SecureBucket;
-  readonly grafanaBucket?: SecureBucket;
-  readonly lokiBucket?: SecureBucket;
 
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
@@ -73,7 +71,7 @@ export class StorageStack extends Stack {
     });
 
     if (config.observability.enabled) {
-      this.grafanaBucket = new SecureBucket(this, 'Grafana', {
+      new SecureBucket(this, 'Grafana', {
         bucketName: grafanaBucketName(config),
         versioned: config.storage.versioned,
         removalPolicy: removal,
@@ -81,7 +79,7 @@ export class StorageStack extends Stack {
         serverAccessLogsBucket: this.logsBucket,
         serverAccessLogsPrefix: 's3/grafana/',
       });
-      this.lokiBucket = new SecureBucket(this, 'Loki', {
+      new SecureBucket(this, 'Loki', {
         bucketName: lokiBucketName(config),
         // Loki rewrites index objects constantly. Versions would only
         // accumulate cost.

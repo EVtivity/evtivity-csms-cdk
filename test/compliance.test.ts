@@ -27,6 +27,9 @@ const NO_UPDATED_DATE_TYPES = new Set([
   'AWS::RDS::DBCluster',
   'AWS::RDS::DBInstance',
   'AWS::ElastiCache::ReplicationGroup',
+  'AWS::ElastiCache::User',
+  'AWS::ElastiCache::UserGroup',
+  'AWS::WAFv2::IPSet',
 ]);
 
 // Same feature flags as `cdk synth`.
@@ -81,6 +84,88 @@ for (const env of ENVS) {
   void describe(`${env} environment`, () => {
     const { config, resources, templates } = synth(env);
 
+    void it('Lambda: every function logs to a managed log group with retention', () => {
+      // Otherwise Lambda creates /aws/lambda/<name> on first run with no
+      // retention, and it survives stack deletion.
+      for (const [id, r] of Object.entries(resources)) {
+        if (r.Type !== 'AWS::Lambda::Function') continue;
+        const logging = r.Properties?.['LoggingConfig'] as { LogGroup?: unknown } | undefined;
+        assert.ok(logging?.LogGroup != null, `${id} has a managed log group`);
+      }
+      for (const [id, r] of Object.entries(resources)) {
+        if (r.Type !== 'AWS::Logs::LogGroup') continue;
+        assert.ok(r.Properties?.['RetentionInDays'] != null, `${id} has a retention period`);
+      }
+    });
+
+    void it('IAM: task roles grant Resource "*" only for ECS Exec', () => {
+      // cdk-nag acknowledges IAM5 Resource::* on task roles for ECS Exec.
+      // This keeps that acknowledgement from hiding any other wildcard grant.
+      const execActions = new Set([
+        'logs:DescribeLogGroups',
+        'ssmmessages:CreateControlChannel',
+        'ssmmessages:CreateDataChannel',
+        'ssmmessages:OpenControlChannel',
+        'ssmmessages:OpenDataChannel',
+      ]);
+      for (const [id, r] of Object.entries(resources)) {
+        if (r.Type !== 'AWS::IAM::Policy') continue;
+        const doc0 = r.Properties?.['PolicyDocument'] as {
+          Statement: { Action: string | string[]; Resource: unknown }[];
+        };
+        // The database job runner may list tasks in its cluster, nothing else.
+        if (id.startsWith('DbJobOnEvent')) {
+          for (const st of doc0.Statement) {
+            if (st.Resource === '*') assert.deepEqual([st.Action].flat(), ['ecs:ListTasks'], id);
+          }
+          continue;
+        }
+        if (!id.includes('TaskRole')) continue;
+        const doc = r.Properties?.['PolicyDocument'] as {
+          Statement: { Action: string | string[]; Resource: unknown }[];
+        };
+        for (const st of doc.Statement) {
+          if (st.Resource !== '*') continue;
+          for (const action of [st.Action].flat()) {
+            assert.ok(
+              config.ecs.executeCommand && execActions.has(action),
+              `${id} grants ${action} on all resources`,
+            );
+          }
+        }
+      }
+    });
+
+    void it('Network: observability tasks cannot reach the data stores', () => {
+      if (!config.observability.enabled) return;
+      const sgsOf = (name: string): string[] => {
+        const svc = ofType(resources, 'AWS::ECS::Service').find((r) =>
+          JSON.stringify(r['ServiceName']).includes(`-${name}"`),
+        );
+        const net = svc?.['NetworkConfiguration'] as
+          { AwsvpcConfiguration: { SecurityGroups: unknown[] } } | undefined;
+        return (net?.AwsvpcConfiguration.SecurityGroups ?? []).map((g) => JSON.stringify(g));
+      };
+      const appSgs = sgsOf('api');
+      assert.ok(appSgs.length > 0, 'api security groups found');
+      for (const name of ['grafana', 'loki', 'prometheus']) {
+        const obs = sgsOf(name);
+        assert.ok(obs.length > 0, `${name} security groups found`);
+        assert.ok(
+          obs.every((g) => !appSgs.includes(g)),
+          `${name} must not use the app security group`,
+        );
+        // The database and cache accept only the app and rotation groups.
+        for (const [id, r] of Object.entries(resources)) {
+          if (r.Type !== 'AWS::EC2::SecurityGroupIngress') continue;
+          const port = Number(r.Properties?.['FromPort']);
+          if (port !== 5432 && port !== 6379) continue;
+          const source = JSON.stringify(r.Properties?.['SourceSecurityGroupId']);
+          assert.ok(!obs.some((g) => source.includes(g.replace(/"/g, ''))), `${id} admits ${name}`);
+        }
+      }
+    });
+
     void it('Stack descriptions: list only what the environment deploys', () => {
       const has = (type: string): boolean => ofType(resources, type).length > 0;
       const desc = (name: string): string => String(templates[name]?.toJSON()['Description'] ?? '');
@@ -121,13 +206,25 @@ for (const env of ENVS) {
           Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }],
         });
       }
-      const policies = JSON.stringify(ofType(resources, 'AWS::S3::BucketPolicy'));
-      assert.match(policies, /"aws:SecureTransport":"false"/);
-      // S3.9: the app bucket logs access to the logs bucket.
-      assert.ok(
-        buckets.some((b) => b['LoggingConfiguration'] != null),
-        'server access logging',
-      );
+      // S3.5 per bucket: each one has its own policy denying plain HTTP.
+      const entries = Object.entries(resources);
+      const bucketIds = entries.filter(([, r]) => r.Type === 'AWS::S3::Bucket').map(([id]) => id);
+      for (const id of bucketIds) {
+        const policy = entries.find(
+          ([, r]) =>
+            r.Type === 'AWS::S3::BucketPolicy' &&
+            JSON.stringify(r.Properties?.['Bucket']).includes(`"${id}"`),
+        );
+        assert.ok(policy, `${id} has a bucket policy`);
+        assert.match(
+          JSON.stringify(policy[1].Properties),
+          /"aws:SecureTransport":"false"/,
+          `${id} denies plain HTTP`,
+        );
+      }
+      // S3.9: every bucket except the logs bucket itself logs access to it.
+      const logTargets = buckets.filter((b) => b['LoggingConfiguration'] == null);
+      assert.equal(logTargets.length, 1, 'only the logs bucket has no access logging');
     });
 
     void it('RDS: encrypted, private, logs exported, TLS forced, monitored (RDS.2/6/9/12/16/24/27/35)', () => {
@@ -259,6 +356,8 @@ for (const env of ENVS) {
       const grafanaWaf = aclRules.find((r) => r.Name === 'GrafanaAllowList');
       assert.ok(grafanaWaf, 'web ACL has the Grafana allowlist rule');
       assert.match(JSON.stringify(grafanaWaf.Statement), /IPSetReferenceStatement/);
+      // A port or trailing dot in the Host header must not skip the block.
+      assert.match(JSON.stringify(grafanaWaf.Statement), /"PositionalConstraint":"STARTS_WITH"/);
       const enabledServices = Object.values(config.services).filter((s) => s.enabled).length;
       // Every service plus the database job, PostgreSQL, and Valkey.
       assert.equal(ofType(resources, 'AWS::Logs::SubscriptionFilter').length, enabledServices + 3);
@@ -430,12 +529,38 @@ for (const env of ENVS) {
         'Project',
         'ManagedBy',
       ];
+      // Types that take a Tags list. A resource of these types without tags fails.
+      const mustTag = new Set([
+        'AWS::S3::Bucket',
+        'AWS::EC2::VPC',
+        'AWS::EC2::SecurityGroup',
+        'AWS::ECS::Cluster',
+        'AWS::ECS::Service',
+        'AWS::ECS::TaskDefinition',
+        'AWS::RDS::DBCluster',
+        'AWS::ElastiCache::ReplicationGroup',
+        'AWS::ElastiCache::User',
+        'AWS::Lambda::Function',
+        'AWS::IAM::Role',
+        'AWS::SecretsManager::Secret',
+        'AWS::Logs::LogGroup',
+        'AWS::SNS::Topic',
+        'AWS::KMS::Key',
+        'AWS::ElasticLoadBalancingV2::LoadBalancer',
+        'AWS::WAFv2::IPSet',
+      ]);
       for (const [id, r] of Object.entries(resources)) {
         const tags = r.Properties?.['Tags'];
-        if (!Array.isArray(tags)) continue;
+        if (!Array.isArray(tags)) {
+          assert.ok(!mustTag.has(r.Type), `${id} (${r.Type}) has no tags`);
+          continue;
+        }
         const keys = new Set((tags as { Key: string }[]).map((t) => t.Key));
         for (const key of required) {
-          if (key === 'UpdatedDate' && NO_UPDATED_DATE_TYPES.has(r.Type)) continue;
+          if (key === 'UpdatedDate' && NO_UPDATED_DATE_TYPES.has(r.Type)) {
+            assert.ok(!keys.has(key), `${id} (${r.Type}) must not carry UpdatedDate`);
+            continue;
+          }
           assert.ok(keys.has(key), `${id} (${r.Type}) is missing ${key}`);
         }
         const envTag = (tags as { Key: string; Value: string }[]).find(

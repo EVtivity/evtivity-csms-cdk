@@ -13,14 +13,10 @@ jobs:
   ci:
     name: typecheck + lint + test + synth
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, qa, prod]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -31,10 +27,14 @@ jobs:
 
       - run: npm run lint
 
+      # The tests synthesize every environment and run cdk-nag on each.
       - run: npm test
 
+      # A full synth also bundles the Lambda functions, which the tests skip.
       - name: cdk synth
         env:
-          TARGET_ENV: ${{ matrix.env }}
           CDK_DISABLE_VERSION_CHECK: '1'
-        run: npx cdk synth --context env="$TARGET_ENV" --quiet
+        run: |
+          for env in dev qa prod; do
+            npx cdk synth --context env="$env" --quiet -o "cdk.out.$env"
+          done

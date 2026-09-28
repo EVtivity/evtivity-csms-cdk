@@ -8,11 +8,18 @@ on:
         type: choice
         required: true
         options: [dev, qa, prod]
-      stacks:
-        description: 'Stack pattern (default: --all)'
-        type: string
-        required: false
-        default: --all
+      stack:
+        description: Stack to deploy (its dependencies deploy first)
+        type: choice
+        required: true
+        default: all
+        options: [all, Network, Domain, Storage, Data, Alb, App]
+
+# One deployment per environment at a time. A second run waits instead of
+# failing partway through against a stack that is already updating.
+concurrency:
+  group: deploy-${{ inputs.env }}
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -24,52 +31,67 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.env }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
 
-      # Account-specific values live in GitHub environment variables, not in
-      # the committed config.
+      # The environment's whole local override file lives in one GitHub
+      # environment variable, CDK_LOCAL_CONFIG (the same YAML you keep in
+      # config/<env>.local.yaml). A partial file here would silently drop
+      # settings such as the Grafana allowlist or the alert email.
       - name: Write local config
         env:
           TARGET_ENV: ${{ inputs.env }}
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
-          INITIAL_ADMIN_EMAIL: ${{ vars.INITIAL_ADMIN_EMAIL }}
+          CDK_LOCAL_CONFIG: ${{ vars.CDK_LOCAL_CONFIG }}
         run: |
-          cat > "config/${TARGET_ENV}.local.yaml" <<EOF
-          account: "${AWS_ACCOUNT_ID}"
-          domain:
-            hostedZoneId: ${HOSTED_ZONE_ID}
-          initialAdmin:
-            email: ${INITIAL_ADMIN_EMAIL}
-          EOF
+          if [ -z "$CDK_LOCAL_CONFIG" ]; then
+            echo "Set the CDK_LOCAL_CONFIG variable on the ${TARGET_ENV} environment" >&2
+            exit 1
+          fi
+          printf '%s\n' "$CDK_LOCAL_CONFIG" > "config/${TARGET_ENV}.local.yaml"
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
-
+      # Checks run before AWS credentials exist in the job.
       - run: npm run typecheck
 
       - run: npm run lint
 
       - run: npm test
 
-      - name: cdk diff
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Resolve stack
+        id: target
         env:
           TARGET_ENV: ${{ inputs.env }}
-          STACK_PATTERN: ${{ inputs.stacks }}
-        run: npx cdk diff --context env="$TARGET_ENV" $STACK_PATTERN || true
+          STACK: ${{ inputs.stack }}
+        run: |
+          if [ "$STACK" = "all" ]; then
+            echo "args=--all" >> "$GITHUB_OUTPUT"
+          else
+            ENV_TITLE="$(printf '%s' "$TARGET_ENV" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$TARGET_ENV" | cut -c2-)"
+            echo "args=Evtivity-${ENV_TITLE}-${STACK}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Synthesize once, so the deploy is exactly what the diff showed.
+      - name: cdk synth
+        env:
+          TARGET_ENV: ${{ inputs.env }}
+        run: npx cdk synth --context env="$TARGET_ENV" --quiet -o cdk.out
+
+      # Diff every stack: deploying one stack also deploys its dependencies.
+      - name: cdk diff
+        run: npx cdk diff --app cdk.out --all
 
       - name: cdk deploy
         env:
-          TARGET_ENV: ${{ inputs.env }}
-          STACK_PATTERN: ${{ inputs.stacks }}
-        run: npx cdk deploy --context env="$TARGET_ENV" $STACK_PATTERN --require-approval never
+          TARGET_STACKS: ${{ steps.target.outputs.args }}
+        run: npx cdk deploy --app cdk.out "$TARGET_STACKS" --require-approval never

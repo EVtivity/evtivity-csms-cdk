@@ -16,30 +16,32 @@ Three checks run on every change:
 | ElastiCache Valkey | AWS-managed key                        | `TransitEncryptionMode: required`                          |
 | S3 buckets         | SSE-S3                                 | Bucket policy denies requests without TLS, minimum TLS 1.2 |
 | Secrets Manager    | AWS-managed key (`aws/secretsmanager`) | TLS API endpoint                                           |
-| SNS alarm topic    | AWS-managed key (`aws/sns`)            | Topic policy denies publishes without TLS                  |
+| SNS alarm topic    | Customer-managed key, yearly rotation  | Topic policy denies publishes without TLS                  |
 | NAT instance (EBS) | Encrypted root volume                  | n/a                                                        |
 | ALB listeners      | n/a                                    | `ELBSecurityPolicy-TLS13-1-2-Res-2021-06`, HTTP redirects  |
 | ALB to containers  | n/a                                    | HTTP inside the VPC (EXC-001)                              |
 
-No customer-managed KMS keys are created. Each resource accepts one if a stricter key policy is required later.
+The only customer-managed KMS key encrypts the alerts topic. CloudWatch alarms and EventBridge rules cannot publish to a topic encrypted with `aws/sns`, so the key policy grants them `kms:GenerateDataKey` and `kms:Decrypt`.
 
 ## Credentials
 
-| Secret                                   | Used by                               | Rotation                                                               |
-| ---------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
-| `evtivity/<env>/db-master`               | Database job only                     | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
-| `evtivity/<env>/db-app`                  | Every service                         | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
-| `evtivity/<env>/cache-app`               | Every service                         | Custom function keeps current and pending passwords on the Valkey user |
-| `evtivity/<env>/jwt`                     | API                                   | Static (EXC-003)                                                       |
-| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, database job | Static (EXC-003)                                                       |
-| `evtivity/<env>/initial-admin`           | Database job                          | Static; the admin must change the password at first sign-in (EXC-003)  |
-| `evtivity/<env>/grafana-admin`           | Grafana                               | Static (EXC-003)                                                       |
+| Secret                                   | Used by                            | Rotation                                                               |
+| ---------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `evtivity/<env>/db-master`               | Database job only                  | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
+| `evtivity/<env>/db-app`                  | Every service                      | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
+| `evtivity/<env>/cache-app`               | Every service                      | Custom function keeps current and pending passwords on the Valkey user |
+| `evtivity/<env>/jwt`                     | API                                | Static (EXC-003)                                                       |
+| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, demo seed | Static (EXC-003)                                                       |
+| `evtivity/<env>/initial-admin`           | Database job                       | Static; the admin must change the password at first sign-in (EXC-003)  |
+| `evtivity/<env>/grafana-admin`           | Grafana                            | Static (EXC-003)                                                       |
 
 How rotated credentials reach running tasks:
 
 - ECS reads secrets only when a task starts. The services receive `DB_*` and `REDIS_*` fields, and the image entrypoint builds `DATABASE_URL` and `REDIS_URL` from them.
 - Both rotation schemes keep the previous credential valid for one full interval: the database alternates between two roles, and the Valkey user holds two passwords.
 - An EventBridge Scheduler job forces a new deployment of each service every `ecs.redeployEveryDays` days (weekly by default). The config schema rejects a redeploy interval that is not shorter than the rotation interval.
+- The Valkey user may run everything the services need but no admin or dangerous commands (`on ~* &* +@all -@dangerous +info`). Changing its access string updates the user, which resets its passwords to the current secret, so redeploy the services after such a change.
+- With `secrets.removal: retain` (prod), every credential secret survives a stack delete, including the database and cache users, so a rebuild on the retained snapshot keeps working credentials. Their names are fixed, so a rebuilt Data stack must import them or they must be deleted first.
 - Application privileges belong to the `evtivity_app_group` role. The database job creates it and grants default privileges for tables that migrations create, and the rotation copies the group membership to the clone role. Migrations run as the cluster owner, so every table has one owner.
 
 ## Network
@@ -51,7 +53,8 @@ How rotated credentials reach running tasks:
   - Tasks: ingress from the ALB on service and health ports, and from other tasks on internal ports (Cloud Map).
   - Aurora: 5432 from tasks and rotation functions only. Valkey: 6379 from the same.
   - OCPP TLS NLB (optional): the TLS port from anywhere (EXC-006).
-- The VPC default security group has every rule removed. VPC flow logs capture all traffic.
+- Grafana, Loki, Prometheus, and the log forwarder use their own security group. Only the app services' group can reach Aurora (5432) and Valkey (6379), so Grafana, which is reachable through the ALB, has no network path to the data stores.
+- The VPC default security group has every rule removed. VPC flow logs capture all traffic and go to the logs bucket as Parquet under `vpc-flow-logs/`. The bucket's expiration (`storage.logsExpirationDays`) sets their retention.
 - The S3 gateway endpoint keeps bucket traffic off the NAT. Interface endpoints are optional per environment.
 
 ## Compute
@@ -66,7 +69,7 @@ How rotated credentials reach running tasks:
 
 - ALB drops invalid header fields, uses defensive desync mitigation, and writes access logs to the logs bucket.
 - Deletion protection is on in prod.
-- WAF (qa and prod) runs the AWS managed IP reputation, common, known bad inputs, and SQL injection rule groups, a per-IP rate limit, and an optional country block. `NoUserAgent_HEADER` and `SizeRestrictions_BODY` run in count mode because charging stations often omit a User-Agent and bulk imports exceed 8 KB. WAF logs go to CloudWatch with the `authorization` and `cookie` headers redacted.
+- Every environment with observability gets a web ACL that limits Grafana to the allowlist. In qa and prod (`waf.enabled`) it also runs the AWS managed IP reputation, common, known bad inputs, and SQL injection rule groups, a per-IP rate limit, and an optional country block. `NoUserAgent_HEADER` and `SizeRestrictions_BODY` run in count mode because charging stations often omit a User-Agent and bulk imports exceed 8 KB. WAF logs go to CloudWatch with the `authorization` and `cookie` headers redacted.
 
 ## FSBP controls asserted by the tests
 
