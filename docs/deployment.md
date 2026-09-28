@@ -182,7 +182,7 @@ export AWS_PROFILE=<name>
 
 Sign in as `admin` with the password from `evtivity/<env>/grafana-admin`.
 
-Dashboard and alert changes: edit them in `evtivity-csms-private/prometheus/grafana/`, then run `./scripts/sync-observability.sh` here and deploy. The deploy uploads the files and restarts Grafana when their content changed.
+Dashboard and alert changes: edit them in the CSMS repo's `prometheus/grafana/`, then run `./scripts/sync-observability.sh <csms repo>/prometheus/grafana` here and deploy. The deploy uploads the files and restarts Grafana when their content changed.
 
 ## Updating the fck-nat AMI
 

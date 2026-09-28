@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Copies the Grafana dashboards and alerting files from the CSMS repo, which
 # is their source of truth (the Helm chart copies the same files). Run after
-# any dashboard or alert rule change in evtivity-csms-private, then commit.
+# any dashboard or alert rule change in the CSMS repo, then commit.
+#
+# Usage: scripts/sync-observability.sh <path to the CSMS repo>/prometheus/grafana
 set -euo pipefail
 
-SRC="${1:-../evtivity-csms-private/prometheus/grafana}"
+if [ $# -ne 1 ]; then
+  sed -n 6p "$0" | sed 's/^# //' >&2
+  exit 1
+fi
+SRC="$1"
 DEST="$(cd "$(dirname "$0")/.." && pwd)/observability/grafana"
 
 if [ ! -d "$SRC/dashboards" ]; then
