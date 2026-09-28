@@ -33,17 +33,17 @@
     "@aws-sdk/client-secrets-manager": "^3.1141.0",
     "@commitlint/cli": "^20.4.2",
     "@commitlint/config-conventional": "^20.4.2",
-    "@eslint/js": "^9.30.0",
+    "@eslint/js": "^10.0.1",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.0",
     "aws-cdk": "^2.1143.0",
-    "eslint": "^9.30.0",
-    "eslint-config-prettier": "^10.0.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "prettier": "^3.5.0",
     "tsx": "^4.20.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.40.0"
+    "typescript-eslint": "^8.70.1"
   },
   "engines": {
     "node": ">=22"

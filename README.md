@@ -1,5 +1,15 @@
 # EVtivity CSMS - AWS CDK
 
+<p>
+  <a href="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/ci.yml"><img src="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/release.yml"><img src="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
+  <img src="https://img.shields.io/badge/AWS%20CDK-v2-FF9900.svg?logo=amazonwebservices&logoColor=white" alt="AWS CDK v2" />
+  <img src="https://img.shields.io/badge/Node.js-22%2B-339933.svg?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
+  <img src="https://img.shields.io/badge/cdk--nag-AwsSolutions-2E7D32.svg" alt="cdk-nag AwsSolutions" />
+  <img src="https://img.shields.io/badge/Security%20Hub-FSBP-DD344C.svg" alt="Security Hub FSBP" />
+</p>
+
 AWS CDK infrastructure for the EVtivity Charging Station Management System. Companion to `evtivity-csms-helm` (Kubernetes). This repo runs the same platform on AWS: ECS Fargate (ARM64), Aurora PostgreSQL, ElastiCache Valkey, an ALB with WAF, Prometheus, Loki, and Grafana, and an optional NLB for OCPP mutual TLS.
 
 ## Environments
