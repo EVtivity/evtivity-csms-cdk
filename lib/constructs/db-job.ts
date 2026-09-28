@@ -18,7 +18,13 @@ import {
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import type { Config } from '../config/index.js';
-import { BOOTSTRAP_JS, DB_JOB_SH, SEED_SETTINGS_JS } from '../db-job-scripts.js';
+import {
+  BOOTSTRAP_JS,
+  DB_JOB_SH,
+  SEED_DEMO_POST_JS,
+  SEED_DEMO_SH,
+  SEED_SETTINGS_JS,
+} from '../db-job-scripts.js';
 import { tagService } from '../tagging.js';
 import { namePrefix, removalPolicyOf } from '../util.js';
 
@@ -36,6 +42,8 @@ export interface DbJobProps {
   settingsKeySecret: secretsmanager.ISecret;
   initialAdminSecret: secretsmanager.ISecret;
   settings: Record<string, string | number | boolean>;
+  /** Present when seedDemo.enabled: the simulator URLs the demo stations target. */
+  demo?: { ocppUrl: string; ocppTlsUrl: string; tlsEnabled: boolean };
 }
 
 /**
@@ -47,6 +55,8 @@ export interface DbJobProps {
 export class DbJob extends Construct {
   readonly resource: CustomResource;
   readonly logGroup: logs.LogGroup;
+  /** The one-time demo seed, when enabled. Runs after `resource`. */
+  readonly demoResource?: CustomResource;
 
   constructor(scope: Construct, id: string, props: DbJobProps) {
     super(scope, id);
@@ -145,6 +155,89 @@ export class DbJob extends Construct {
       }),
     );
 
+    // One-time demo seed. The custom resource references the task family,
+    // not a revision, so image or setting changes do not rerun it. Only a
+    // new seedDemo.revision does. RunTask on a family uses its latest revision.
+    const demoFamily = `evtivity-${config.env}-seed-demo`;
+    let demoTask: ecs.FargateTaskDefinition | undefined;
+    if (props.demo != null) {
+      const demoPassword = new secretsmanager.Secret(this, 'DemoPassword', {
+        secretName: `evtivity/${config.env}/demo-password`,
+        description:
+          'Password of the demo operators and driver. Operators change it at first sign-in.',
+        generateSecretString: {
+          passwordLength: 20,
+          excludePunctuation: true,
+        },
+        removalPolicy: removalPolicyOf(config.logs.removal),
+      });
+      demoTask = new ecs.FargateTaskDefinition(this, 'DemoTask', {
+        family: demoFamily,
+        cpu: 1024,
+        memoryLimitMiB: 2048,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+      });
+      demoTask.addVolume({ name: 'tmp' });
+      const demoContainer = demoTask.addContainer('app', {
+        image: props.image,
+        user: '1000',
+        readonlyRootFilesystem: true,
+        command: ['sh', '-c', SEED_DEMO_SH],
+        logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'seed-demo', logGroup }),
+        environment: {
+          NODE_ENV: 'production',
+          HOME: '/tmp',
+          npm_config_cache: '/tmp/.npm',
+          npm_config_update_notifier: 'false',
+          DB_HOST: props.dbHost,
+          DB_PORT: props.dbPort,
+          DB_NAME: props.dbName,
+          DB_SSLMODE: 'require',
+          SEED_CSS_TARGET_URL: props.demo.ocppUrl,
+          SEED_CSS_TLS_TARGET_URL: props.demo.ocppTlsUrl,
+          DEMO_TLS_ENABLED: String(props.demo.tlsEnabled),
+          DEMO_STATION_LIMIT: String(config.seedDemo.stationLimit),
+          SEED_DEMO_POST_JS,
+          SEED_SETTINGS_JS,
+          SETTINGS_JSON: settingsJson,
+        },
+        secrets: {
+          DB_USER: ecs.Secret.fromSecretsManager(props.masterSecret, 'username'),
+          DB_PASSWORD: ecs.Secret.fromSecretsManager(props.masterSecret, 'password'),
+          SETTINGS_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(props.settingsKeySecret),
+          INITIAL_ADMIN_EMAIL: ecs.Secret.fromSecretsManager(props.initialAdminSecret, 'email'),
+          INITIAL_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(
+            props.initialAdminSecret,
+            'password',
+          ),
+          DEMO_PASSWORD: ecs.Secret.fromSecretsManager(demoPassword),
+        },
+      });
+      demoContainer.addMountPoints({ containerPath: '/tmp', sourceVolume: 'tmp', readOnly: false });
+      onEvent.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['ecs:RunTask'],
+          resources: [
+            Stack.of(this).formatArn({
+              service: 'ecs',
+              resource: 'task-definition',
+              resourceName: `${demoFamily}:*`,
+            }),
+          ],
+          conditions: { ArnEquals: { 'ecs:cluster': props.cluster.clusterArn } },
+        }),
+      );
+      onEvent.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [demoTask.taskRole.roleArn, demoTask.obtainExecutionRole().roleArn],
+        }),
+      );
+    }
+
     const provider = new cr.Provider(this, 'Provider', {
       onEventHandler: onEvent,
       isCompleteHandler: isComplete,
@@ -181,5 +274,26 @@ export class DbJob extends Construct {
     });
     // Keep the task definition revision alive until the job has run.
     this.resource.node.addDependency(taskDef);
+
+    if (demoTask != null) {
+      this.demoResource = new CustomResource(this, 'Demo', {
+        serviceToken: provider.serviceToken,
+        resourceType: 'Custom::EvtivitySeedDemo',
+        properties: {
+          ClusterArn: props.cluster.clusterArn,
+          TaskDefinitionArn: demoFamily,
+          Revision: String(config.seedDemo.revision),
+          Subnets: props.vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
+            .subnetIds,
+          SecurityGroups: [props.securityGroup.securityGroupId],
+          ContainerName: 'app',
+          LogGroupName: logGroup.logGroupName,
+          JobName: 'seed-demo',
+        },
+      });
+      // Demo data needs the migrated schema, and the settings it rewrites
+      // must be the ones this deploy wrote.
+      this.demoResource.node.addDependency(this.resource, demoTask);
+    }
   }
 }

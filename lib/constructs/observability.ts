@@ -28,13 +28,14 @@ import { Construct } from 'constructs';
 import { API_METRICS_PORT, GRAFANA_PORT, LOKI_PORT, discoveryName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { tagService } from '../tagging.js';
+import { addExecVolumes } from './exec-support.js';
 import {
   grafanaBucketName,
+  grafanaHost,
   lokiBucketName,
   namePrefix,
   removalPolicyOf,
   secretPrefix,
-  zoneApex,
 } from '../util.js';
 
 export interface ObservabilityProps {
@@ -79,6 +80,12 @@ interface ServiceOptions {
   mounts: Mount[];
   /** Stop the old task before starting the new one (single-writer state). */
   singleWriter?: boolean;
+  /**
+   * Seconds ECS ignores load balancer health checks after a task starts.
+   * Grafana's first start runs about 650 database migrations on EFS (about
+   * a minute) before it listens.
+   */
+  healthCheckGracePeriodSeconds?: number;
 }
 
 /**
@@ -101,8 +108,6 @@ interface ServiceOptions {
  */
 export class Observability extends Construct {
   readonly grafanaHost: string;
-  /** True when grafana.<zone> resolves and accepts the allowed CIDRs. */
-  readonly grafanaHostPublic: boolean;
   private readonly props: ObservabilityProps;
   private readonly fileSystem: efs.FileSystem;
 
@@ -321,8 +326,7 @@ export class Observability extends Construct {
       removalPolicy: removalPolicyOf(config.secrets.removal),
     });
 
-    this.grafanaHost = `${o.grafana.hostname}.${zoneApex(config)}`;
-    this.grafanaHostPublic = o.grafana.allowedCidrs.length > 0;
+    this.grafanaHost = grafanaHost(config);
     const grafanaHome = '/var/lib/grafana';
     const grafana = this.service('grafana', {
       image: `grafana/grafana:${o.grafana.version}`,
@@ -356,6 +360,7 @@ export class Observability extends Construct {
       mounts: [{ kind: 'efs', path: grafanaHome, accessPoint: grafanaAp }],
       // SQLite on EFS takes a single writer.
       singleWriter: true,
+      healthCheckGracePeriodSeconds: 300,
     });
     this.addGrafanaProvisioner(grafana.taskDefinition, grafana.logGroup, bucket, grafanaHome);
     grafana.service.node.addDependency(provisioning);
@@ -380,37 +385,28 @@ export class Observability extends Construct {
       }),
     );
 
-    // Public access only from the configured CIDRs. Without any, Grafana has
-    // no listener rule or DNS record and is reached through ECS Exec.
-    if (o.grafana.allowedCidrs.length > 0) {
-      const targetGroup = new elbv2.ApplicationTargetGroup(this, 'GrafanaTargets', {
-        vpc: props.vpc,
-        port: GRAFANA_PORT,
-        protocol: elbv2.ApplicationProtocol.HTTP,
-        targetType: elbv2.TargetType.IP,
-        deregistrationDelay: Duration.seconds(15),
-        healthCheck: {
-          path: '/api/health',
-          healthyHttpCodes: '200',
-          interval: Duration.seconds(30),
-        },
-      });
-      grafana.service.attachToApplicationTargetGroup(targetGroup);
-      new elbv2.ApplicationListenerRule(this, 'GrafanaRule', {
-        listener: props.httpsListener,
-        priority: 60,
-        conditions: [
-          elbv2.ListenerCondition.hostHeaders([this.grafanaHost]),
-          elbv2.ListenerCondition.sourceIps(o.grafana.allowedCidrs),
-        ],
-        action: elbv2.ListenerAction.forward([targetGroup]),
-      });
-      new route53.ARecord(this, 'GrafanaDns', {
-        zone: props.hostedZone,
-        recordName: this.grafanaHost,
-        target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(props.alb)),
-      });
-    }
+    // The ALB forwards grafana.<zone> to Grafana. The web ACL in the ALB
+    // stack blocks every source address outside the Grafana allowlist.
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'GrafanaTargets', {
+      vpc: props.vpc,
+      port: GRAFANA_PORT,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targetType: elbv2.TargetType.IP,
+      deregistrationDelay: Duration.seconds(15),
+      healthCheck: { path: '/api/health', healthyHttpCodes: '200', interval: Duration.seconds(30) },
+    });
+    grafana.service.attachToApplicationTargetGroup(targetGroup);
+    new elbv2.ApplicationListenerRule(this, 'GrafanaRule', {
+      listener: props.httpsListener,
+      priority: 60,
+      conditions: [elbv2.ListenerCondition.hostHeaders([this.grafanaHost])],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+    new route53.ARecord(this, 'GrafanaDns', {
+      zone: props.hostedZone,
+      recordName: this.grafanaHost,
+      target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(props.alb)),
+    });
 
     // --- CloudWatch Logs -> Loki ---
 
@@ -503,6 +499,7 @@ export class Observability extends Construct {
     for (const mount of opts.mounts) {
       this.addMount(taskDefinition, container, name, mount);
     }
+    if (config.ecs.executeCommand) addExecVolumes(taskDefinition, container);
 
     const service = new ecs.FargateService(scope, 'Service', {
       serviceName: `${namePrefix(config)}-${name}`,
@@ -520,6 +517,9 @@ export class Observability extends Construct {
       maxHealthyPercent: opts.singleWriter === true ? 100 : 200,
       propagateTags: ecs.PropagatedTagSource.SERVICE,
       cloudMapOptions: { name, dnsTtl: Duration.seconds(10) },
+      ...(opts.healthCheckGracePeriodSeconds != null && {
+        healthCheckGracePeriod: Duration.seconds(opts.healthCheckGracePeriodSeconds),
+      }),
     });
     return { service, taskDefinition, logGroup };
   }

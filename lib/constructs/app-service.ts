@@ -12,6 +12,7 @@ import { Construct } from 'constructs';
 import { SERVICE_CATALOG, discoveryName, type ServiceName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { tagService } from '../tagging.js';
+import { addExecVolumes } from './exec-support.js';
 import { namePrefix, removalPolicyOf, serviceHost } from '../util.js';
 
 export interface AppServiceProps {
@@ -100,6 +101,7 @@ export class AppService extends Construct {
       this.taskDefinition.addVolume({ name: volume });
       container.addMountPoints({ containerPath: path, sourceVolume: volume, readOnly: false });
     }
+    if (config.ecs.executeCommand) addExecVolumes(this.taskDefinition, container);
 
     this.service = new ecs.FargateService(this, 'Service', {
       serviceName: `${namePrefix(config)}-${name}`,

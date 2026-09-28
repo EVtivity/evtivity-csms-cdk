@@ -18,7 +18,7 @@ Every environment runs the observability stack from the Helm chart (Prometheus, 
 
 - AWS credentials for the target account (`aws sso login --profile <name>` or an access key profile)
 - Node.js 22 or later
-- A Route 53 public hosted zone for the domain (for example `evtivity.com`) in the same account
+- A Route 53 public hosted zone for the domain (for example `[your-domain].com`) in the same account
 - The CSMS release set in `image.tag` published on `ghcr.io/evtivity/evtivity-csms/*` (the CSMS release workflow updates `image.tag` in every config)
 
 ### 1. Configure the environment
@@ -38,10 +38,10 @@ initialAdmin:
   email: you@example.com
 observability:
   grafana:
-    allowedCidrs: ['203.0.113.10/32'] # your office or VPN range
+    allowedCidrs: ['203.0.113.10/32'] # initial Grafana allowlist
 ```
 
-Hostnames are `<hostname>.<subdomain>.<apex>`: `domain.subdomain: dev` gives `csms.dev.evtivity.com`, and prod's empty subdomain gives `csms.evtivity.com`. Rename a service with `services.<name>.hostname`. Turn a service off with `services.<name>.enabled: false`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts).
+Hostnames are `<hostname>.<subdomain>.<apex>`: `domain.subdomain: dev` gives `csms.dev.[your-domain].com`, and prod's empty subdomain gives `csms.[your-domain].com`. Rename a service with `services.<name>.hostname`. Turn a service off with `services.<name>.enabled: false`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts).
 
 ### 2. Check and deploy
 
@@ -69,14 +69,14 @@ aws cloudformation describe-stacks --stack-name Evtivity-Dev-App --profile <name
   --query "Stacks[0].Outputs[?starts_with(OutputKey,'Url')].[OutputKey,OutputValue]" --output table
 ```
 
-| Service         | dev URL                                               |
-| --------------- | ----------------------------------------------------- |
-| Dashboard       | https://csms.dev.evtivity.com                         |
-| Driver portal   | https://portal.dev.evtivity.com                       |
-| API             | https://api.dev.evtivity.com (health: `/v1/health`)   |
-| OCPP (stations) | wss://ocpp.dev.evtivity.com/<stationId>               |
-| OCPI            | https://ocpi.dev.evtivity.com                         |
-| Grafana         | https://grafana.dev.evtivity.com (allowed CIDRs only) |
+| Service         | dev URL                                                      |
+| --------------- | ------------------------------------------------------------ |
+| Dashboard       | https://csms.dev.[your-domain].com                           |
+| Driver portal   | https://portal.dev.[your-domain].com                         |
+| API             | https://api.dev.[your-domain].com (health: `/v1/health`)     |
+| OCPP (stations) | wss://ocpp.dev.[your-domain].com/<stationId>                 |
+| OCPI            | https://ocpi.dev.[your-domain].com                           |
+| Grafana         | https://grafana.dev.[your-domain].com (allowlisted IPs only) |
 
 ### Sign in
 
@@ -89,6 +89,12 @@ aws secretsmanager get-secret-value --secret-id evtivity/dev/initial-admin \
 
 Grafana's user is `admin`. Its password is in `evtivity/dev/grafana-admin`.
 
+Grafana answers only to allowlisted addresses. Change the list at any time without a deploy:
+
+```bash
+AWS_PROFILE=<name> ./scripts/grafana-access.sh dev add me     # also: list, remove <cidr>
+```
+
 ### Logs and status
 
 ```bash
@@ -99,10 +105,12 @@ aws logs tail /evtivity/dev/api --follow --profile <name>
 aws ecs describe-services --cluster evtivity-dev --services evtivity-dev-api \
   --query 'services[0].[runningCount,desiredCount,deployments[0].rolloutState]' --profile <name>
 
-# Shell into a task (dev and qa have ECS Exec enabled)
+# Shell into a task (dev and qa have ECS Exec enabled, needs the Session Manager plugin)
 aws ecs execute-command --cluster evtivity-dev --task <task-id> --container app \
   --interactive --command sh --profile <name>
 ```
+
+Exec sessions run as root and keep the read-only root filesystem, so only `/tmp` is writable. Every session is logged to `/evtivity/<env>/ecs-exec`. The observability containers are named `grafana`, `loki`, and `prometheus` instead of `app`.
 
 In Grafana, the EVtivity folder holds the system metrics, business metrics, logs, and alerts dashboards. Alerts publish to the `evtivity-dev-alerts` SNS topic. Set `monitoring.alarmEmail` to receive them by email.
 

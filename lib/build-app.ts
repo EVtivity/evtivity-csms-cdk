@@ -28,23 +28,24 @@ export interface EvtivityStacks {
 export function buildApp(app: App, config: Config, updatedDate: string): EvtivityStacks {
   const env = { account: config.account, region: config.region };
   const prefix = stackPrefix(config);
+  const d = stackDescriptions(config);
 
   const network = new NetworkStack(app, `${prefix}-Network`, {
     env,
     config,
-    description: `EVtivity ${config.env}: VPC, NAT, flow logs, security groups`,
+    description: d.network,
   });
 
   const domain = new DomainStack(app, `${prefix}-Domain`, {
     env,
     config,
-    description: `EVtivity ${config.env}: ACM certificate`,
+    description: d.domain,
   });
 
   const storage = new StorageStack(app, `${prefix}-Storage`, {
     env,
     config,
-    description: `EVtivity ${config.env}: S3 buckets`,
+    description: d.storage,
   });
 
   const data = new DataStack(app, `${prefix}-Data`, {
@@ -53,7 +54,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     vpc: network.vpc,
     ecsSg: network.ecsSg,
     rotationSg: network.rotationSg,
-    description: `EVtivity ${config.env}: Aurora PostgreSQL, Valkey, secrets, rotation`,
+    description: d.data,
   });
 
   const alb = new AlbStack(app, `${prefix}-Alb`, {
@@ -63,7 +64,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     albSg: network.albSg,
     certificate: domain.certificate,
     logsBucket: storage.logsBucket,
-    description: `EVtivity ${config.env}: application load balancer and WAF`,
+    description: d.alb,
   });
 
   const appStack = new AppStack(app, `${prefix}-App`, {
@@ -90,7 +91,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
       settingsKeySecret: data.settingsKeySecret,
       initialAdminSecret: data.initialAdminSecret,
     },
-    description: `EVtivity ${config.env}: ECS cluster, database job, services, DNS`,
+    description: d.app,
   });
 
   // The app stack names the bucket directly instead of importing it.
@@ -104,4 +105,56 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
   tagStack(appStack, config, 'app', updatedDate);
 
   return { network, domain, storage, data, alb, app: appStack };
+}
+
+/**
+ * CloudFormation stack descriptions. Built from the config so each one lists
+ * only what that environment deploys.
+ */
+export function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string> {
+  const obs = config.observability.enabled;
+  const list = (items: (string | false)[]): string =>
+    `EVtivity ${config.env}: ${items.filter((i): i is string => i !== false).join(', ')}`;
+
+  return {
+    network: list([
+      'VPC with public, private, and isolated subnets',
+      config.vpc.nat.mode === 'fck-nat' ? 'fck-nat instance' : 'NAT gateways',
+      'S3 gateway endpoint',
+      config.vpc.interfaceEndpoints.length > 0 && 'interface endpoints',
+      'flow logs',
+      'security groups',
+    ]),
+    domain: list(['ACM certificate for the environment hostnames, validated in Route 53']),
+    storage: list([
+      'S3 buckets for load balancer access logs',
+      'application files',
+      obs && 'Grafana provisioning',
+      obs && 'Loki log storage',
+    ]),
+    data: list([
+      `Aurora PostgreSQL ${config.aurora.mode === 'serverless' ? 'Serverless v2 ' : ''}cluster`,
+      'ElastiCache Valkey with RBAC users',
+      'application secrets',
+      config.rotation.enabled && 'credential rotation',
+    ]),
+    alb: list([
+      'Application Load Balancer with HTTPS listener and HTTP redirect',
+      (config.waf.enabled || obs) && 'WAF web ACL',
+      config.waf.enabled && 'managed rules and rate limiting',
+      obs && 'Grafana IP allowlist',
+    ]),
+    app: list([
+      'ECS Fargate cluster',
+      'database job',
+      config.seedDemo.enabled && 'demo data seed',
+      'services',
+      'Route 53 records',
+      config.ocppTls.enabled && 'OCPP TLS network load balancer',
+      'alerts topic',
+      (config.monitoring.dashboard || config.monitoring.alarms) && 'CloudWatch monitoring',
+      obs && 'observability (Prometheus, Loki, Grafana)',
+      config.ecs.redeployEveryDays > 0 && 'scheduled redeploys',
+    ]),
+  };
 }

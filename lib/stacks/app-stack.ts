@@ -10,6 +10,8 @@ import {
   aws_ec2 as ec2,
   aws_ecs as ecs,
   aws_elasticloadbalancingv2 as elbv2,
+  aws_events as events,
+  aws_events_targets as eventTargets,
   aws_iam as iam,
   aws_kms as kms,
   aws_logs as logs,
@@ -28,7 +30,14 @@ import { AppService } from '../constructs/app-service.js';
 import { DbJob } from '../constructs/db-job.js';
 import { Monitoring } from '../constructs/monitoring.js';
 import { Observability } from '../constructs/observability.js';
-import { namePrefix, serviceHost, serviceUrl, zoneApex } from '../util.js';
+import {
+  namePrefix,
+  removalPolicyOf,
+  secretPrefix,
+  serviceHost,
+  serviceUrl,
+  zoneApex,
+} from '../util.js';
 
 export interface AppStackProps extends StackProps {
   config: Config;
@@ -73,8 +82,23 @@ export class AppStack extends Stack {
     const namespace = `${config.env}.evtivity.internal`;
     const internal = (name: ServiceName): string => `${discoveryName(name)}.${namespace}`;
 
+    // With ECS Exec on, every session and its commands are logged for audit.
+    const execLogs = config.ecs.executeCommand
+      ? new logs.LogGroup(this, 'ExecSessionLogs', {
+          logGroupName: `/evtivity/${config.env}/ecs-exec`,
+          retention: config.logs.retentionDays,
+          removalPolicy: removalPolicyOf(config.logs.removal),
+        })
+      : undefined;
+
     this.cluster = new ecs.Cluster(this, 'Cluster', {
       clusterName: prefix,
+      ...(execLogs != null && {
+        executeCommandConfiguration: {
+          logging: ecs.ExecuteCommandLogging.OVERRIDE,
+          logConfiguration: { cloudWatchLogGroup: execLogs, cloudWatchEncryptionEnabled: false },
+        },
+      }),
       vpc,
       containerInsightsV2:
         config.ecs.containerInsights === 'enhanced'
@@ -111,6 +135,13 @@ export class AppStack extends Stack {
       settingsKeySecret: data.settingsKeySecret,
       initialAdminSecret: data.initialAdminSecret,
       settings,
+      ...(config.seedDemo.enabled && {
+        demo: {
+          ocppUrl: `ws://${internal('ocpp')}:8080`,
+          ocppTlsUrl: `wss://${internal('ocpp')}:${String(config.ocppTls.enabled ? config.ocppTls.port : 8443)}`,
+          tlsEnabled: config.ocppTls.enabled,
+        },
+      }),
     });
 
     // --- Services ---
@@ -299,6 +330,10 @@ export class AppStack extends Stack {
       });
       // Services start only after migrations and grants have succeeded.
       svc.service.node.addDependency(dbJob.resource);
+      // The simulator picks up the demo stations on first start.
+      if (name === 'css' && dbJob.demoResource != null) {
+        svc.service.node.addDependency(dbJob.demoResource);
+      }
       if (spec.usesBucket) {
         // Presigned uploads and downloads, attachment deletes, and listing.
         svc.taskDefinition.addToTaskRolePolicy(
@@ -335,10 +370,53 @@ export class AppStack extends Stack {
 
     // One topic for CloudWatch alarms and Grafana alerts. Email
     // subscriptions need a confirmation click before they deliver.
+    // CloudWatch alarms and EventBridge cannot publish to a topic encrypted
+    // with the AWS-managed aws/sns key, so the topic gets its own key whose
+    // policy lets those services use it.
+    const alertsKey = new kms.Key(this, 'AlertsKey', {
+      alias: `${prefix}-alerts`,
+      description: 'Encrypts the EVtivity alerts SNS topic',
+      enableKeyRotation: true,
+      removalPolicy: removalPolicyOf(config.secrets.removal),
+      pendingWindow: Duration.days(7),
+    });
+    for (const service of ['cloudwatch.amazonaws.com', 'events.amazonaws.com']) {
+      alertsKey.addToResourcePolicy(
+        new iam.PolicyStatement({
+          principals: [new iam.ServicePrincipal(service)],
+          actions: ['kms:Decrypt', 'kms:GenerateDataKey*'],
+          resources: ['*'],
+          conditions: { StringEquals: { 'aws:SourceAccount': this.account } },
+        }),
+      );
+    }
     const alertTopic = new sns.Topic(this, 'Alerts', {
       topicName: `${prefix}-alerts`,
-      masterKey: kms.Alias.fromAliasName(this, 'SnsKey', 'alias/aws/sns'),
+      masterKey: alertsKey,
       enforceSSL: true,
+    });
+
+    // A failed or abandoned rotation leaves a credential half-rotated, which
+    // is silent until the next task start fails. Alert on it.
+    new events.Rule(this, 'RotationFailures', {
+      ruleName: `${prefix}-rotation-failures`,
+      description: 'Secrets Manager rotation failures for this environment',
+      eventPattern: {
+        source: ['aws.secretsmanager'],
+        detailType: ['AWS Service Event via CloudTrail'],
+        detail: {
+          eventSource: ['secretsmanager.amazonaws.com'],
+          eventName: ['RotationFailed', 'RotationAbandoned', 'TestRotationFailed'],
+          additionalEventData: {
+            SecretId: [
+              {
+                prefix: `arn:${Aws.PARTITION}:secretsmanager:${this.region}:${this.account}:secret:${secretPrefix(config)}/`,
+              },
+            ],
+          },
+        },
+      },
+      targets: [new eventTargets.SnsTopic(alertTopic)],
     });
     if (config.monitoring.alarmEmail != null) {
       alertTopic.addSubscription(new subs.EmailSubscription(config.monitoring.alarmEmail));
@@ -390,9 +468,7 @@ export class AppStack extends Stack {
         alertTopic,
         logGroups,
       });
-      if (observability.grafanaHostPublic) {
-        new CfnOutput(this, 'Url-grafana', { value: `https://${observability.grafanaHost}` });
-      }
+      new CfnOutput(this, 'Url-grafana', { value: `https://${observability.grafanaHost}` });
     }
 
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });

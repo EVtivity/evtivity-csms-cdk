@@ -59,7 +59,7 @@ How rotated credentials reach running tasks:
 - Fargate on ARM64, platform version `LATEST`, deployment circuit breaker with rollback.
 - Every container: read-only root filesystem with scratch volumes, not privileged, `initProcessEnabled`, awslogs logging, secrets only through the `secrets` field.
 - Node services run as uid 1000. The csms and portal nginx images run as root (EXC-002).
-- Container Insights is on for the cluster. ECS Exec is on in dev and qa only.
+- Container Insights is on for the cluster. ECS Exec is on in dev and qa only (`ecs.executeCommand`). Each container keeps its read-only root filesystem: the SSM agent writes to two scratch volumes at `/var/lib/amazon` and `/var/log/amazon`. AWS does not officially support ECS Exec with a read-only root filesystem, and this layout was verified on Fargate. Sessions run as root inside the container and are logged to the `/evtivity/<env>/ecs-exec` log group.
 - The NAT instance enforces IMDSv2 through the `@aws-cdk/aws-ec2:requireImdsv2` flag.
 
 ## Load balancing and WAF
@@ -102,4 +102,4 @@ How rotated credentials reach running tasks:
 
 ## Tags
 
-Every taggable resource carries `Environment`, `Service`, `Stack`, `Project`, `ManagedBy`, `Repository`, `CreatedDate`, and `UpdatedDate`. `CreatedDate` comes from the environment config and never changes. `UpdatedDate` is the day of the synth. ECS task definitions skip `UpdatedDate`, because a changed tag would create a new revision and restart every service on every deploy. Resources that AWS creates at run time (Lambda log groups of the hosted rotation functions, network interfaces) and resource types without tag support in CloudFormation (security group rules, routes, record sets, schedules) are not tagged.
+Every taggable resource carries `Environment`, `Service`, `Stack`, `Project`, `ManagedBy`, `Repository`, `CreatedDate`, and `UpdatedDate`. `CreatedDate` comes from the environment config and never changes. `UpdatedDate` is the day of the synth. ECS task definitions, the NAT launch template, Aurora, and Valkey skip `UpdatedDate`: a changed tag would restart every service, replace the NAT instance, or put the database and cache into a modifying state on every deploy. Resources that AWS creates at run time (Lambda log groups of the hosted rotation functions, network interfaces) and resource types without tag support in CloudFormation (security group rules, routes, record sets, schedules) are not tagged.

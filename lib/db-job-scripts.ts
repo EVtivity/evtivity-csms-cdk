@@ -107,3 +107,72 @@ export const DB_JOB_SH = [
   'node --input-type=module -e "$SEED_SETTINGS_JS"',
   'echo "[db-job] done"',
 ].join('\n');
+
+/**
+ * Runs after the demo seed. Replaces the demo seed's well-known passwords
+ * (admin123, driver123) with DEMO_PASSWORD, makes every dashboard account
+ * the seed touched change its password at first sign-in, and caps how many
+ * seeded simulator stations the css service boots. TLS stations stay
+ * disabled when the OCPP TLS listener is off.
+ */
+export const SEED_DEMO_POST_JS = `
+import postgres from 'postgres';
+import argon2 from 'argon2';
+
+const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+const limit = Number(process.env.DEMO_STATION_LIMIT ?? '0');
+const plainUrl = process.env.SEED_CSS_TARGET_URL;
+const tlsUrl = process.env.SEED_CSS_TLS_TARGET_URL;
+const tlsEnabled = process.env.DEMO_TLS_ENABLED === 'true';
+
+try {
+  const hash = await argon2.hash(process.env.DEMO_PASSWORD);
+  const ops = await sql.unsafe(
+    "UPDATE users SET password_hash = $1, must_reset_password = true, updated_at = now() " +
+      "WHERE email LIKE 'operator%@evtivity.local'",
+    [hash],
+  );
+  const admin = await sql.unsafe(
+    'UPDATE users SET must_reset_password = true, updated_at = now() WHERE email = $1',
+    [process.env.INITIAL_ADMIN_EMAIL],
+  );
+  const drivers = await sql.unsafe(
+    "UPDATE drivers SET password_hash = $1, updated_at = now() WHERE email = 'driver@evtivity.local'",
+    [hash],
+  );
+  console.log('[demo] demo password set on ' + String(ops.count) + ' operators and ' +
+    String(drivers.count) + ' driver, ' + String(ops.count + admin.count) + ' accounts must reset');
+
+  if (!tlsEnabled) {
+    await sql.unsafe(
+      'UPDATE css_stations SET enabled = false, updated_at = now() WHERE target_url = $1',
+      [tlsUrl],
+    );
+  }
+  const urls = tlsEnabled ? [plainUrl, tlsUrl] : [plainUrl];
+  const off = await sql.unsafe(
+    'UPDATE css_stations SET enabled = false, updated_at = now() ' +
+      'WHERE enabled AND target_url = ANY($1::text[]) AND id NOT IN (' +
+      'SELECT id FROM css_stations WHERE enabled AND target_url = ANY($1::text[]) ' +
+      'ORDER BY station_id LIMIT $2)',
+    [urls, limit],
+  );
+  console.log('[demo] simulator stations capped at ' + String(limit) + ', ' + String(off.count) + ' disabled');
+} finally {
+  await sql.end();
+}
+`;
+
+/** Shell steps of the one-time demo seed job. */
+export const SEED_DEMO_SH = [
+  'set -eu',
+  'cd /app/packages/database',
+  'echo "[demo] seed"',
+  'SEED_DEMO=true npm run seed',
+  'echo "[demo] passwords and simulator limit"',
+  'node --input-type=module -e "$SEED_DEMO_POST_JS"',
+  // The seed overwrites every default setting. Put the configured ones back.
+  'echo "[demo] settings"',
+  'node --input-type=module -e "$SEED_SETTINGS_JS"',
+  'echo "[demo] done"',
+].join('\n');

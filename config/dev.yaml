@@ -77,6 +77,12 @@ ocpi:
 initialAdmin:
   email: admin@evtivity.com
 appSettings: {}
+# Demo sites, stations, drivers, and sessions. Runs once. Bump revision to
+# rerun. Demo accounts use the password in evtivity/dev/demo-password.
+seedDemo:
+  enabled: false
+  revision: 1
+  stationLimit: 50
 monitoring:
   dashboard: false
   alarms: false

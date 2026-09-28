@@ -20,6 +20,15 @@ type Resources = Record<string, { Type: string; Properties?: Record<string, unkn
 
 const ENVS: EnvName[] = ['dev', 'qa', 'prod'];
 
+// Resource types that skip the UpdatedDate tag (see lib/tagging.ts).
+const NO_UPDATED_DATE_TYPES = new Set([
+  'AWS::ECS::TaskDefinition',
+  'AWS::EC2::LaunchTemplate',
+  'AWS::RDS::DBCluster',
+  'AWS::RDS::DBInstance',
+  'AWS::ElastiCache::ReplicationGroup',
+]);
+
 // Same feature flags as `cdk synth`.
 const CDK_CONTEXT = (
   JSON.parse(readFileSync('cdk.json', 'utf8')) as { context: Record<string, unknown> }
@@ -70,7 +79,30 @@ interface Container {
 
 for (const env of ENVS) {
   void describe(`${env} environment`, () => {
-    const { config, resources } = synth(env);
+    const { config, resources, templates } = synth(env);
+
+    void it('Stack descriptions: list only what the environment deploys', () => {
+      const has = (type: string): boolean => ofType(resources, type).length > 0;
+      const desc = (name: string): string => String(templates[name]?.toJSON()['Description'] ?? '');
+      assert.equal(desc('storage').includes('Loki'), config.observability.enabled);
+      assert.equal(desc('alb').includes('WAF web ACL'), has('AWS::WAFv2::WebACL'));
+      assert.equal(desc('alb').includes('managed rules'), config.waf.enabled);
+      assert.equal(
+        desc('app').includes('network load balancer'),
+        ofType(resources, 'AWS::ElasticLoadBalancingV2::LoadBalancer').some(
+          (lb) => lb['Type'] === 'network',
+        ),
+      );
+      assert.equal(desc('app').includes('Grafana'), config.observability.enabled);
+      assert.equal(desc('app').includes('demo data'), has('Custom::EvtivitySeedDemo'));
+      assert.equal(
+        desc('network').includes('fck-nat'),
+        ofType(resources, 'AWS::EC2::NatGateway').length === 0,
+      );
+      for (const name of Object.keys(templates)) {
+        assert.match(desc(name), new RegExp(`^EVtivity ${env}: `));
+      }
+    });
 
     void it('S3: blocks public access, encrypts, requires TLS, and has lifecycle rules (S3.1/5/8/13)', () => {
       const buckets = ofType(resources, 'AWS::S3::Bucket');
@@ -211,17 +243,26 @@ for (const env of ENVS) {
         );
       }
       if (!o.enabled) return;
+      // grafana.<zone> always routes to Grafana. The web ACL blocks every
+      // source outside the allowlist IP set.
       const grafanaRules = ofType(resources, 'AWS::ElasticLoadBalancingV2::ListenerRule').filter(
         (r) => JSON.stringify(r['Conditions']).includes(`${o.grafana.hostname}.`),
       );
-      assert.equal(grafanaRules.length, o.grafana.allowedCidrs.length > 0 ? 1 : 0);
-      for (const rule of grafanaRules) {
-        assert.match(
-          JSON.stringify(rule['Conditions']),
-          /source-ip/,
-          'Grafana is restricted by source IP',
-        );
-      }
+      assert.equal(grafanaRules.length, 1);
+      const grafanaService = ofType(resources, 'AWS::ECS::Service').find((svc) =>
+        String(svc['ServiceName']).endsWith('-grafana'),
+      );
+      assert.ok(
+        Number(grafanaService?.['HealthCheckGracePeriodSeconds']) >= 300,
+        'first-start migrations',
+      );
+      const [ipSet] = ofType(resources, 'AWS::WAFv2::IPSet');
+      assert.deepEqual(ipSet?.['Addresses'], o.grafana.allowedCidrs);
+      const [acl] = ofType(resources, 'AWS::WAFv2::WebACL');
+      const aclRules = acl?.['Rules'] as { Name: string; Statement: unknown }[];
+      const grafanaWaf = aclRules.find((r) => r.Name === 'GrafanaAllowList');
+      assert.ok(grafanaWaf, 'web ACL has the Grafana allowlist rule');
+      assert.match(JSON.stringify(grafanaWaf.Statement), /IPSetReferenceStatement/);
       const enabledServices = Object.values(config.services).filter((s) => s.enabled).length;
       // Every service plus the database job, PostgreSQL, and Valkey.
       assert.equal(ofType(resources, 'AWS::Logs::SubscriptionFilter').length, enabledServices + 3);
@@ -254,11 +295,11 @@ for (const env of ENVS) {
 
     void it('WAF: enabled and logging where configured (WAF.11)', () => {
       const acls = ofType(resources, 'AWS::WAFv2::WebACL');
-      assert.equal(acls.length, config.waf.enabled ? 1 : 0);
-      assert.equal(
-        ofType(resources, 'AWS::WAFv2::LoggingConfiguration').length,
-        config.waf.enabled ? 1 : 0,
-      );
+      const aclExpected = config.waf.enabled || config.observability.enabled ? 1 : 0;
+      assert.equal(acls.length, aclExpected);
+      assert.equal(ofType(resources, 'AWS::WAFv2::LoggingConfiguration').length, aclExpected);
+      const managed = JSON.stringify(acls).includes('AWSManagedRulesCommonRuleSet');
+      assert.equal(managed, config.waf.enabled, 'managed rule groups follow waf.enabled');
       if (env !== 'dev') assert.equal(config.waf.enabled, true);
     });
 
@@ -309,6 +350,80 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Alerts: topic on a rotating customer key, rotation failures alert', () => {
+      const [topic] = ofType(resources, 'AWS::SNS::Topic');
+      assert.match(
+        JSON.stringify(topic?.['KmsMasterKeyId']),
+        /AlertsKey/,
+        'topic uses the customer key',
+      );
+      const keys = ofType(resources, 'AWS::KMS::Key');
+      assert.ok(keys.length >= 1);
+      for (const key of keys) assert.equal(key['EnableKeyRotation'], true, 'KMS.4');
+      const policy = JSON.stringify(keys);
+      assert.match(policy, /cloudwatch\.amazonaws\.com/);
+      assert.match(policy, /events\.amazonaws\.com/);
+      const rule = ofType(resources, 'AWS::Events::Rule').find((r) =>
+        JSON.stringify(r['EventPattern']).includes('RotationFailed'),
+      );
+      assert.ok(rule, 'rotation failure rule exists');
+      assert.match(JSON.stringify(rule['EventPattern']), new RegExp(`secret:evtivity/${env}/`));
+    });
+
+    void it('ECS Exec: works with read-only root filesystems and logs every session', () => {
+      const services = ofType(resources, 'AWS::ECS::Service');
+      const [cluster] = ofType(resources, 'AWS::ECS::Cluster');
+      const clusterConfig = JSON.stringify(cluster?.['Configuration'] ?? {});
+      for (const svc of services) {
+        assert.equal(Boolean(svc['EnableExecuteCommand']), config.ecs.executeCommand);
+      }
+      for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
+        const family = String(td['Family']);
+        if (family.endsWith('-db-job') || family.endsWith('-seed-demo')) continue;
+        const [main] = td['ContainerDefinitions'] as (Container & {
+          MountPoints?: { ContainerPath: string; ReadOnly?: boolean }[];
+        })[];
+        assert.ok(main, `${family} has a container`);
+        assert.equal(main.ReadonlyRootFilesystem, true, `${family} keeps a read-only root`);
+        const paths = (main.MountPoints ?? [])
+          .filter((m) => m.ReadOnly === false)
+          .map((m) => m.ContainerPath);
+        for (const path of ['/var/lib/amazon', '/var/log/amazon']) {
+          assert.equal(paths.includes(path), config.ecs.executeCommand, `${family} ${path}`);
+        }
+      }
+      if (config.ecs.executeCommand) {
+        assert.match(clusterConfig, /"Logging":"OVERRIDE"/);
+        assert.match(clusterConfig, /CloudWatchLogGroupName/);
+      } else {
+        assert.doesNotMatch(clusterConfig, /ExecuteCommandConfiguration/);
+      }
+    });
+
+    void it('Demo seed: one-time, keyed on revision, generated password, never in prod', () => {
+      const demo = ofType(resources, 'Custom::EvtivitySeedDemo');
+      assert.equal(demo.length, config.seedDemo.enabled ? 1 : 0);
+      if (env === 'prod') assert.equal(config.seedDemo.enabled, false);
+      const [run] = demo;
+      if (run == null) return;
+      // A family name, not a revision ARN, so image and setting changes do not rerun it.
+      assert.equal(run['TaskDefinitionArn'], `evtivity-${env}-seed-demo`);
+      assert.equal(run['Revision'], String(config.seedDemo.revision));
+      const td = ofType(resources, 'AWS::ECS::TaskDefinition').find(
+        (t) => t['Family'] === `evtivity-${env}-seed-demo`,
+      );
+      const [main] = (td?.['ContainerDefinitions'] ?? []) as {
+        ReadonlyRootFilesystem?: boolean;
+        Secrets?: { Name: string }[];
+        Environment?: { Name: string; Value: string }[];
+      }[];
+      assert.ok(main, 'demo task has a container');
+      assert.equal(main.ReadonlyRootFilesystem, true);
+      assert.ok(main.Secrets?.some((s) => s.Name === 'DEMO_PASSWORD'));
+      const limit = main.Environment?.find((e) => e.Name === 'DEMO_STATION_LIMIT');
+      assert.equal(limit?.Value, String(config.seedDemo.stationLimit));
+    });
+
     void it('Tags: every taggable resource carries the standard tags', () => {
       const required = [
         'Environment',
@@ -324,7 +439,7 @@ for (const env of ENVS) {
         if (!Array.isArray(tags)) continue;
         const keys = new Set((tags as { Key: string }[]).map((t) => t.Key));
         for (const key of required) {
-          if (key === 'UpdatedDate' && r.Type === 'AWS::ECS::TaskDefinition') continue;
+          if (key === 'UpdatedDate' && NO_UPDATED_DATE_TYPES.has(r.Type)) continue;
           assert.ok(keys.has(key), `${id} (${r.Type}) is missing ${key}`);
         }
         const envTag = (tags as { Key: string; Value: string }[]).find(

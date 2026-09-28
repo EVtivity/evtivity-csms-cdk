@@ -15,6 +15,8 @@ interface JobProperties {
   SecurityGroups: string[];
   ContainerName: string;
   LogGroupName: string;
+  /** Job name for the physical id, errors, and the log stream prefix. Default db-job. */
+  JobName?: string;
 }
 
 interface ProviderEvent {
@@ -30,8 +32,10 @@ export async function onEvent(
   event: ProviderEvent,
 ): Promise<{ PhysicalResourceId: string; Data?: object }> {
   const props = event.ResourceProperties;
+  // TaskDefinitionArn may be a full revision ARN or a bare family name.
   const physicalId =
-    event.PhysicalResourceId ?? `db-job-${props.TaskDefinitionArn.split('/').pop() ?? 'task'}`;
+    event.PhysicalResourceId ??
+    `${props.JobName ?? 'db-job'}-${props.TaskDefinitionArn.split('/').pop() ?? 'task'}`;
   // Nothing to undo on delete: the job only changes data inside the database.
   if (event.RequestType === 'Delete') return { PhysicalResourceId: physicalId };
 
@@ -80,9 +84,10 @@ export async function isComplete(
   if (exitCode === 0) return { IsComplete: true, Data: { ExitCode: '0' } };
 
   const taskId = taskArn.split('/').pop() ?? taskArn;
+  const job = props.JobName ?? 'db-job';
   throw new Error(
-    `database job ${taskId} failed: exit code ${String(exitCode)}, ` +
+    `${job} ${taskId} failed: exit code ${String(exitCode)}, ` +
       `${task.stoppedReason ?? ''} ${container?.reason ?? ''}. ` +
-      `Logs: ${props.LogGroupName}, stream db-job/app/${taskId}`,
+      `Logs: ${props.LogGroupName}, stream ${job}/app/${taskId}`,
   );
 }

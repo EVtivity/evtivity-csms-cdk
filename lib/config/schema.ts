@@ -304,6 +304,22 @@ export const configSchema = z
     // Non-secret settings only. Enter credentials in the dashboard.
     appSettings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
 
+    // Demo dataset (sites, 2000 stations, operators, drivers, sessions,
+    // simulator rows). Runs once after the database job, not on every
+    // deploy. Bump revision to run it again (the seed skips when demo data is
+    // already present). Demo operators and drivers get a generated password
+    // from evtivity/<env>/demo-password, and operators must change it at
+    // first sign-in. Not allowed in prod.
+    seedDemo: z
+      .object({
+        enabled: z.boolean().default(false),
+        revision: z.number().int().min(1).default(1),
+        // Seeded simulator stations left enabled for the css service. The
+        // rest are disabled so a small css task is not flooded. 0 disables all.
+        stationLimit: z.number().int().min(0).max(2000).default(50),
+      })
+      .prefault({}),
+
     monitoring: z
       .object({
         dashboard: z.boolean().default(true),
@@ -326,9 +342,11 @@ export const configSchema = z
               .string()
               .regex(/^[a-z0-9-]+$/)
               .default('grafana'),
-            // Source CIDRs allowed to reach grafana.<zone>. Empty means no
-            // public access: reach Grafana through ECS Exec port forwarding.
-            allowedCidrs: z.array(z.cidrv4()).max(5).default([]),
+            // Initial contents of the WAF IP set that may reach
+            // grafana.<zone>. Edit the live set with
+            // scripts/grafana-access.sh, no deploy needed. Changing this list
+            // replaces the set's contents on the next deploy.
+            allowedCidrs: z.array(z.cidrv4()).default([]),
             cpu: fargateCpu.default(256),
             memoryMiB: z.number().int().min(512).default(512),
             capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
@@ -399,6 +417,13 @@ export const configSchema = z
           message: 'required when ocppTls.enabled',
         });
       }
+    }
+    if (c.seedDemo.enabled && c.env === 'prod') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['seedDemo', 'enabled'],
+        message: 'demo data is not allowed in prod',
+      });
     }
     if (c.cssTls.enabled && (c.cssTls.secretName == null || c.cssTls.secretName === '')) {
       ctx.addIssue({

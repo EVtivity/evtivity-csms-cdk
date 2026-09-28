@@ -69,13 +69,51 @@ Stop a lower environment without deleting it: set `desiredCount: 0` on every ser
 
 ## Credential rotation
 
-Rotation runs on the Secrets Manager schedule (`rotation.databaseDays`, `rotation.cacheDays`). The previous credential stays valid for one interval, and every service is redeployed on a weekly schedule so tasks pick up the current value. See `docs/security.md`.
+Three credentials rotate. The static application keys (JWT, settings encryption, initial admin, Grafana admin) do not (EXC-003).
 
-Test a rotation:
+| Secret                     | Rotated by                                               | Scheme                                                                                           |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `evtivity/<env>/db-master` | Secrets Manager hosted function (PostgreSQL single user) | Changes the `evtivity_admin` password in place                                                   |
+| `evtivity/<env>/db-app`    | Secrets Manager hosted function (PostgreSQL multi user)  | Alternates between `evtivity_app` and `evtivity_app_clone`, both members of `evtivity_app_group` |
+| `evtivity/<env>/cache-app` | `lambda/valkey-rotation.ts`                              | Keeps the current and new password on the Valkey user at the same time                           |
+
+Settings:
+
+```yaml
+rotation:
+  enabled: true # false removes the schedules; secrets keep their current values
+  databaseDays: 30 # db-master and db-app
+  cacheDays: 30 # cache-app
+ecs:
+  redeployEveryDays: 7 # must be shorter than the shortest rotation interval
+```
+
+### When rotation runs
+
+| Trigger                                                         | db-master        | db-app                      | cache-app                   |
+| --------------------------------------------------------------- | ---------------- | --------------------------- | --------------------------- |
+| Schedule: every `*Days` since the last rotation                 | Yes              | Yes                         | Yes                         |
+| First deploy with rotation enabled                              | Yes, immediately | No                          | No                          |
+| A deploy that changes `rotation.*Days` or the rotation function | Yes, immediately | No, next scheduled rotation | No, next scheduled rotation |
+| Any other config change or deploy (image tag, sizing, services) | No               | No                          | No                          |
+| `aws secretsmanager rotate-secret --secret-id <name>`           | Yes              | Yes                         | Yes                         |
+
+db-app and cache-app never rotate as part of a deploy. db-app needs the application role that the database job creates first, and both need running tasks to be replaced before the previous credential is dropped. Only the database job uses db-master, and it reads the secret when it starts, so rotating it during a deploy is safe.
+
+### How running tasks pick up new credentials
+
+ECS reads secrets only when a task starts. After a db-app or cache-app rotation, the previous credential stays valid until the next rotation of that secret: the previous database role keeps its password, and the Valkey user keeps both passwords. EventBridge Scheduler forces a new deployment of every service each week (`ecs.redeployEveryDays`), well inside the 30-day interval. The config schema rejects a redeploy interval that is not shorter than the shortest rotation interval.
+
+### Failures
+
+A `RotationFailed`, `RotationAbandoned`, or `TestRotationFailed` event for any `evtivity/<env>/` secret publishes to the `evtivity-<env>-alerts` SNS topic. A failed rotation leaves the current credential working and retries on the next attempt. Rotation logs are in `/aws/lambda/evtivity-<env>-db-master-rotation`, `/aws/lambda/evtivity-<env>-db-app-rotation`, and `/evtivity/<env>/cache-rotation`.
+
+### Rotate now
 
 ```bash
 aws secretsmanager rotate-secret --secret-id evtivity/dev/db-app
 aws secretsmanager rotate-secret --secret-id evtivity/dev/cache-app
+# Optional: pick up the new credentials now instead of at the weekly redeploy
 aws ecs update-service --cluster evtivity-dev --service evtivity-dev-api --force-new-deployment
 ```
 
@@ -101,6 +139,23 @@ Same secret shape, for the charging station simulator to test security profile 3
 
 Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 0 and 1. See EXC-007 before enabling.
 
+### Demo data: `seedDemo.enabled`
+
+Loads the CSMS demo dataset: sites, 2000 stations, operators, drivers, sessions, and simulator stations. Off by default. Prod rejects it.
+
+- It runs once, after the database job. Later deploys, including image updates, do not rerun it. Bump `seedDemo.revision` to run it again. The seed skips the dataset when it is already present, so a rerun mainly reapplies the steps below.
+- The seed rewrites every default setting. The job then reapplies `appSettings` and the stack settings, so the result matches a normal deploy.
+- The seed resets the initial admin password to the value in `evtivity/<env>/initial-admin` and forces a reset at next sign-in.
+- Demo operators (`operator1@evtivity.local` to `operator9@evtivity.local`) and the demo driver (`driver@evtivity.local`) get the password in `evtivity/<env>/demo-password`, not the seed's built-in passwords. Operators must change it at first sign-in. The driver portal has no forced reset.
+- The css service starts only `seedDemo.stationLimit` demo stations (default 50). Security profile 3 stations stay disabled. Security profile 2 stations stay disabled unless `ocppTls.enabled`.
+
+```bash
+aws secretsmanager get-secret-value --secret-id evtivity/dev/demo-password \
+  --query SecretString --output text
+```
+
+Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
+
 ## Observability: `observability.enabled`
 
 Runs the same monitoring stack as the Helm chart, with the same dashboards (system metrics, business metrics, logs, alerts) and the same 12 Grafana alert rules:
@@ -113,12 +168,19 @@ Runs the same monitoring stack as the Helm chart, with the same dashboards (syst
 | Grafana    | Fargate with its database on EFS. Provisioned at start from the `grafana` bucket: dashboards and alert rules from the CSMS repo, generated datasources (AMP through the task role, Loki) and an SNS contact point. |
 | Alerts     | Grafana publishes to the environment's `evtivity-<env>-alerts` SNS topic, shared with the CloudWatch alarms. Set `monitoring.alarmEmail` to subscribe an address (the recipient must confirm).                     |
 
-Access: `grafana.<zone>` exists only when `observability.grafana.allowedCidrs` lists at least one CIDR, and the ALB forwards only requests from those ranges. Put office or VPN ranges in `config/<env>.local.yaml`. Sign in as `admin` with the password from `evtivity/<env>/grafana-admin`. With no CIDRs, reach Grafana through ECS Exec port forwarding:
+Access: `grafana.<zone>` always routes to Grafana, and the ALB's web ACL blocks every source address outside the WAF IP set `evtivity-<env>-grafana-allow`. Edit that set at any time, no deploy needed, and changes apply within seconds:
 
 ```bash
-aws ssm start-session --target ecs:evtivity-dev_<task-id>_<runtime-id> \
-  --document-name AWS-StartPortForwardingSession --parameters portNumber=3000,localPortNumber=3000
+export AWS_PROFILE=<name>
+./scripts/grafana-access.sh dev list
+./scripts/grafana-access.sh dev add me              # this machine's public IP
+./scripts/grafana-access.sh dev add 203.0.113.0/24  # an office or VPN range
+./scripts/grafana-access.sh dev remove 203.0.113.0/24
 ```
+
+`observability.grafana.allowedCidrs` seeds the set when it is first created. Changing that list later replaces the set's contents on the next deploy, including addresses added with the script, so keep the list empty or in sync. Environments without `waf.enabled` get a web ACL with only this rule (about $6 per month).
+
+Sign in as `admin` with the password from `evtivity/<env>/grafana-admin`.
 
 Dashboard and alert changes: edit them in `evtivity-csms-private/prometheus/grafana/`, then run `./scripts/sync-observability.sh` here and deploy. The deploy uploads the files and restarts Grafana when their content changed.
 

@@ -5,11 +5,20 @@ import { Aspects, CfnResource, TagManager, Tags, type IAspect, type Stack } from
 import type { IConstruct } from 'constructs';
 import type { Config } from './config/index.js';
 
-// A tag change on these resources is not a plain metadata update: a task
-// definition gets a new revision (restarting the service and re-running the
-// database job), and a launch template gets a new version (replacing the NAT
-// instance). They still carry every static tag, only not UpdatedDate.
-const NO_UPDATED_DATE = ['AWS::ECS::TaskDefinition', 'AWS::EC2::LaunchTemplate'];
+// A tag change on these resources is not a plain metadata update:
+// - a task definition gets a new revision, restarting the service and
+//   re-running the database job
+// - a launch template gets a new version, replacing the NAT instance
+// - an Aurora cluster or instance and a Valkey replication group go into a
+//   modifying state that blocks other changes for minutes
+// They carry every static tag, only not UpdatedDate.
+const NO_UPDATED_DATE = [
+  'AWS::ECS::TaskDefinition',
+  'AWS::EC2::LaunchTemplate',
+  'AWS::RDS::DBCluster',
+  'AWS::RDS::DBInstance',
+  'AWS::ElastiCache::ReplicationGroup',
+];
 
 /**
  * Tags every taggable resource in the app:
