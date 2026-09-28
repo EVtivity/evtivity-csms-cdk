@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/AWS%20CDK-v2-FF9900.svg?logo=amazonwebservices&logoColor=white" alt="AWS CDK v2" />
   <img src="https://img.shields.io/badge/Node.js-22%2B-339933.svg?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
   <img src="https://img.shields.io/badge/cdk--nag-AwsSolutions-2E7D32.svg" alt="cdk-nag AwsSolutions" />
-  <img src="https://img.shields.io/badge/Security%20Hub-FSBP-DD344C.svg" alt="Security Hub FSBP" />
+  <img src="https://img.shields.io/badge/AWS-Security%20Best%20Practices-DD344C.svg" alt="AWS Security Best Practices" />
 </p>
 
 AWS CDK infrastructure for deploying [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms) on AWS. Companion to the [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) (Kubernetes). This repo runs the same platform on AWS: ECS Fargate (ARM64), Aurora PostgreSQL, ElastiCache Valkey, an ALB with WAF, Prometheus, Loki, and Grafana, and an optional NLB for OCPP mutual TLS.
