@@ -7,7 +7,7 @@ account: '111111111111'
 region: us-east-1
 image:
   registry: ghcr.io/evtivity/evtivity-csms
-  tag: 0.1.21
+  tag: 0.1.22
 domain:
   apex: evtivity.com
   subdomain: qa
