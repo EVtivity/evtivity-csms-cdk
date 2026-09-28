@@ -5,7 +5,7 @@
 - AWS credentials for the target account (for example `aws sso login --profile <name>`)
 - Node.js 22 or later
 - A Route 53 public hosted zone for the apex domain in the same account. The stacks add only subdomain records (`csms.dev.evtivity.com`, ...) and the ACM validation record. They never touch the apex or `www`.
-- A published CSMS release on `ghcr.io/evtivity/evtivity-csms/*`. The images must include the credential-assembling entrypoint and the read-only nginx layout (0.1.20 or later).
+- A published CSMS release on `ghcr.io/evtivity/evtivity-csms/*`. The images must include the credential-assembling entrypoint and the non-root nginx layout (0.1.22 or later).
 
 ## Stacks
 

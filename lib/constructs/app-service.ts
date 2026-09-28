@@ -32,7 +32,7 @@ export interface AppServiceProps {
 /** Scratch paths each image writes to. The root filesystem is read-only. */
 const WRITABLE_PATHS: Record<'node' | 'nginx', string[]> = {
   node: ['/tmp'],
-  nginx: ['/tmp', '/run', '/var/cache/nginx'],
+  nginx: ['/tmp'],
 };
 
 /**
@@ -77,7 +77,8 @@ export class AppService extends Construct {
     if (spec.health != null) ports.add(spec.health.port);
     if (props.extraPort != null) ports.add(props.extraPort);
 
-    const user = sc.user ?? (spec.kind === 'node' ? '1000' : undefined);
+    // node user in node:24-slim, nginx user in nginx-unprivileged.
+    const user = sc.user ?? (spec.kind === 'node' ? '1000' : '101');
     const container = this.taskDefinition.addContainer('app', {
       image: ecs.ContainerImage.fromRegistry(`${repository}:${tag}`),
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: name, logGroup: this.logGroup }),
@@ -93,7 +94,7 @@ export class AppService extends Construct {
       essential: true,
       stopTimeout: Duration.seconds(sc.stopTimeoutSeconds),
       linuxParameters: new ecs.LinuxParameters(this, 'Linux', { initProcessEnabled: true }),
-      ...(user != null && { user }),
+      user,
       ...(spec.health != null && { healthCheck: containerHealthCheck(spec.kind, spec.health) }),
     });
     for (const [i, path] of WRITABLE_PATHS[spec.kind].entries()) {
@@ -193,7 +194,7 @@ function containerHealthCheck(
   health: { port: number; path: string },
 ): ecs.HealthCheck {
   const url = `http://127.0.0.1:${String(health.port)}${health.path}`;
-  // node:24-slim has no curl or wget; nginx:alpine ships busybox wget.
+  // node:24-slim has no curl or wget; nginx-unprivileged:alpine ships busybox wget.
   const command =
     kind === 'node'
       ? `node -e "fetch('${url}').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))"`

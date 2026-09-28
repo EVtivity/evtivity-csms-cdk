@@ -201,8 +201,7 @@ for (const env of ENVS) {
           }
         }
       }
-      // EXC-002: only the nginx images run without a user. Every other
-      // container, including init containers, runs as a non-root user.
+      // Every container, including init containers, runs as a non-root user.
       const expectedUser: Record<string, string> = {
         grafana: '472:0',
         provision: '472:0',
@@ -211,16 +210,13 @@ for (const env of ENVS) {
       };
       for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
         const family = String(td['Family']);
+        const nginx = /-(csms|portal)$/.test(family);
         for (const c of td['ContainerDefinitions'] as Container[]) {
-          if (/-(csms|portal)$/.test(family)) {
-            assert.equal(c.User, undefined, `${family} (EXC-002)`);
-          } else {
-            assert.equal(
-              c.User,
-              expectedUser[c.Name] ?? '1000',
-              `${family}/${c.Name} runs as non-root`,
-            );
-          }
+          assert.equal(
+            c.User,
+            expectedUser[c.Name] ?? (nginx ? '101' : '1000'),
+            `${family}/${c.Name} runs as non-root`,
+          );
         }
       }
     });

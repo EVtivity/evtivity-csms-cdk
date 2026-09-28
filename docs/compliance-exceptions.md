@@ -7,7 +7,12 @@ Each exception lists the control, the affected resources and environments, why t
 | ID      | Control                                                          | Status          | Opened     | Review by  |
 | ------- | ---------------------------------------------------------------- | --------------- | ---------- | ---------- |
 | EXC-001 | ELB.21, ELB.22 (TLS from load balancer to targets)               | Open, temporary | 2026-09-27 | 2026-12-27 |
-| EXC-002 | ECS.20 (containers run as a non-root user), csms and portal only | Open, temporary | 2026-09-27 | 2026-12-27 |
+| EXC-002 | ECS.20 (containers run as a non-root user), csms and portal only | Closed          | 2026-09-27 | n/a        |
+| EXC-003 | SecretsManager.1, SecretsManager.4 (static application keys)     | Open, accepted  | 2026-09-27 | 2026-12-27 |
+| EXC-004 | RDS.7, RDS.15, ElastiCache.3, ELB.6 in lower environments        | Open, accepted  | 2026-09-27 | 2026-12-27 |
+| EXC-005 | EC2.9 (NAT instance public IP) in lower environments             | Open, accepted  | 2026-09-27 | 2026-12-27 |
+| EXC-006 | EC2.18, EC2.19 (OCPP TLS port open to the internet)              | Open, accepted  | 2026-09-27 | 2026-12-27 |
+| EXC-007 | ELB.1 (plain WebSocket listener for OCPP), opt-in only           | Open, accepted  | 2026-09-27 | 2026-12-27 |
 
 ## EXC-001: TLS between the load balancer and the containers
 
@@ -34,27 +39,11 @@ Each exception lists the control, the affected resources and environments, why t
 
 **Closes when:** a release with in-container TLS is deployed to prod and the compliance tests assert HTTPS target groups in all environments.
 
-## EXC-002: csms and portal containers run as root
+## EXC-002: csms and portal containers run as root (closed)
 
 **Control:** ECS.20: ECS task definitions should configure non-root users in Linux container definitions.
 
-**Affected resources:** the csms and portal task definitions, in all environments. The Node services (api, ocpp, ocpi, worker, css, migrate) meet the control: their task definitions set `user: "1000"`, the `node` user that exists in the `node:24-slim` base image.
-
-**Why it is not met:** the csms and portal images are built on `nginx:alpine`, whose master process runs as root. Running them as a non-root user requires rebuilding them on `nginxinc/nginx-unprivileged` with writable paths under `/tmp`, which is an application release.
-
-**Compensating controls:**
-
-- The containers serve only static files (the compiled single-page apps) plus a generated `runtime-config.js` that holds public URLs. They hold no secrets, database credentials, or customer data, and receive no secrets as environment variables.
-- The root filesystem is read-only (ECS.5). Only the scratch paths nginx must write to (`/run` and `/var/cache/nginx`) are mounted as writable ephemeral volumes.
-- The containers are not privileged, add no Linux capabilities, and use the awsvpc network mode (ECS.4, ECS.17). Fargate isolates each task in its own microVM.
-- The containers run in private subnets, reachable only from the ALB security group on the nginx port (ECS.2).
-- The nginx worker processes that handle requests run as the unprivileged `nginx` user. Only the master process runs as root.
-
-**Risk:** a remote code execution flaw in nginx could run in the root-owned master context inside the task's microVM. The read-only filesystem, the lack of secrets, and Fargate task isolation limit the impact.
-
-**Remediation plan:** ship an application release that builds csms and portal on `nginxinc/nginx-unprivileged:alpine` (uid 101), listening on 8080, with the pid, temp paths, and `runtime-config.js` under `/tmp`. Then set `user: "101"` for csms and portal through config.
-
-**Closes when:** that release is deployed to prod and the compliance tests assert a non-root `user` on every container definition.
+**Resolution:** CSMS 0.1.22 builds csms and portal on `nginxinc/nginx-unprivileged:alpine`. The task definitions run them as uid 101 with a read-only root filesystem and one writable `/tmp` volume. The compliance tests assert a non-root `user` on every container definition in every environment.
 
 ## EXC-003: static application keys
 

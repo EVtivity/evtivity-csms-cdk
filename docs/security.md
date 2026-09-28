@@ -58,7 +58,7 @@ How rotated credentials reach running tasks:
 
 - Fargate on ARM64, platform version `LATEST`, deployment circuit breaker with rollback.
 - Every container: read-only root filesystem with scratch volumes, not privileged, `initProcessEnabled`, awslogs logging, secrets only through the `secrets` field.
-- Node services run as uid 1000. The csms and portal nginx images run as root (EXC-002).
+- Every container runs as a non-root user: Node services as uid 1000, the csms and portal nginx images as uid 101.
 - Container Insights is on for the cluster. ECS Exec is on in dev and qa only (`ecs.executeCommand`). Each container keeps its read-only root filesystem: the SSM agent writes to two scratch volumes at `/var/lib/amazon` and `/var/log/amazon`. AWS does not officially support ECS Exec with a read-only root filesystem, and this layout was verified on Fargate. Sessions run as root inside the container and are logged to the `/evtivity/<env>/ecs-exec` log group.
 - The NAT instance enforces IMDSv2 through the `@aws-cdk/aws-ec2:requireImdsv2` flag.
 
@@ -84,7 +84,7 @@ How rotated credentials reach running tasks:
 | ElastiCache.1, .2, .4, .5, .7                | Automatic backups, minor version upgrades, encryption at rest and in transit, custom subnet group                        |
 | ElastiCache.3                                | Prod only: automatic failover (EXC-004 for dev and qa)                                                                   |
 | ECS.2, ECS.4, ECS.5, ECS.8, ECS.9, ECS.12    | No public IPs, not privileged, read-only root, no secrets in environment variables, logging, Container Insights          |
-| ECS.20                                       | Node services run as uid 1000 (EXC-002 for csms and portal)                                                              |
+| ECS.20                                       | Node services run as uid 1000, csms and portal as uid 101                                                                |
 | ELB.1, ELB.4, ELB.5, ELB.6                   | HTTP redirects to HTTPS, invalid headers dropped, access logs, prod deletion protection                                  |
 | WAF.11                                       | Web ACL logging where WAF is enabled                                                                                     |
 | EC2.2, EC2.6                                 | Default security group restricted, VPC flow logs                                                                         |
