@@ -8,7 +8,7 @@ account: '111111111111'
 region: us-east-1
 image:
   registry: ghcr.io/evtivity/evtivity-csms
-  tag: 0.1.20
+  tag: 0.1.21
 domain:
   apex: evtivity.com
   subdomain: '' # csms.evtivity.com, api.evtivity.com, ...
@@ -95,20 +95,20 @@ services:
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: { min: 2, max: 6 }
+    autoscaling: {min: 2, max: 6}
   ocpp:
     enabled: true
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 2
-    autoscaling: { min: 2, max: 6, scaleInCooldownSeconds: 600 }
+    autoscaling: {min: 2, max: 6, scaleInCooldownSeconds: 600}
     # Stations reconnect to another task while this one drains.
     deregistrationDelaySeconds: 300
     stopTimeoutSeconds: 120
   ocpi:
     enabled: true
     desiredCount: 2
-    autoscaling: { min: 2, max: 4 }
+    autoscaling: {min: 2, max: 4}
   csms:
     enabled: true
     desiredCount: 2
