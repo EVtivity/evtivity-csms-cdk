@@ -14,9 +14,21 @@
   <img src="https://img.shields.io/badge/AWS-Security%20Best%20Practices-DD344C.svg" alt="AWS Security Best Practices" />
 </p>
 
-AWS CDK infrastructure for deploying [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms) on AWS. Companion to the [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) (Kubernetes). This repo runs the same platform on AWS: ECS Fargate (ARM64), Aurora PostgreSQL, ElastiCache Valkey, an ALB with WAF, Prometheus, Loki, and Grafana, and an optional NLB for OCPP mutual TLS.
+Deploy [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms), the open charging station management system, to your own AWS account. One YAML file per environment describes everything: sizing, which services run, domain names, security options, and monitoring. The same platform is also available for Kubernetes as a [Helm chart](https://github.com/EVtivity/evtivity-csms-helm).
+
+## What you get
+
+- **All CSMS services on ECS Fargate (ARM64):** the operator dashboard, driver portal, REST API, OCPP server, OCPI server, background worker, and an optional charging station simulator.
+- **Managed data stores:** Aurora PostgreSQL Serverless v2 and ElastiCache Valkey, in isolated subnets, encrypted, with TLS required.
+- **One load balancer for every service**, routed by hostname, with TLS certificates issued and renewed for you. An optional network load balancer passes OCPP security profile 3 (mutual TLS) straight to the OCPP server.
+- **Automatic credential rotation** for the database and cache users, with no downtime.
+- **Observability:** Prometheus, Loki, and Grafana with the same dashboards and alert rules as the Helm chart. Alerts go to an SNS topic you can subscribe to.
+- **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall in qa and prod, and automated checks against the AWS Foundational Security Best Practices on every build.
+- **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, Spot capacity, a database that pauses when idle) and a highly available production layout.
 
 ## Environments
+
+Three environments come ready to use. Each is one file in `config/`, and every value can be changed.
 
 | Env    | Compute                                  | Database                                      | Cache                         | NAT             | WAF |
 | ------ | ---------------------------------------- | --------------------------------------------- | ----------------------------- | --------------- | --- |
@@ -24,22 +36,24 @@ AWS CDK infrastructure for deploying [EVtivity CSMS](https://github.com/EVtivity
 | `qa`   | 1 task per service, on-demand            | Serverless v2, 0.5 to 4 ACU                   | t4g.micro, single node        | fck-nat         | on  |
 | `prod` | 2+ tasks per public service, autoscaling | Serverless v2, 1 to 16 ACU, writer and reader | t4g.medium, replica, failover | NAT gateway x 2 | on  |
 
-Every environment runs the observability stack from the Helm chart (Prometheus, Loki, Grafana, with the same dashboards and alert rules). Monthly costs are in [`docs/cost-report.md`](docs/cost-report.md).
+Estimated monthly costs for each environment are in [`docs/cost-report.md`](docs/cost-report.md).
 
-## Deploy
+## Prerequisites
 
-### Prerequisites
-
-- AWS credentials for the target account (`aws sso login --profile <name>` or an access key profile)
+- An AWS account and credentials for it (`aws sso login --profile <name>` or an access key profile)
 - Node.js 22 or later
-- A Route 53 public hosted zone for the domain (for example `[your-domain].com`) in the same account
-- The CSMS release set in `image.tag` published on `ghcr.io/evtivity/evtivity-csms/*` (the CSMS release workflow updates `image.tag` in every config)
+- A domain with a Route 53 public hosted zone in the same account. The stacks only add records under it (for example `csms.dev.example.com`) and never change existing ones.
+
+## Quick start
 
 ### 1. Configure the environment
 
-`config/<env>.yaml` holds the committed settings. Account-specific values go in `config/<env>.local.yaml` (gitignored), which is merged on top:
+Settings shared by everyone live in `config/<env>.yaml`. Values specific to your account go in `config/<env>.local.yaml`, which git ignores and which is merged on top:
 
 ```bash
+git clone https://github.com/EVtivity/evtivity-csms-cdk.git
+cd evtivity-csms-cdk
+npm ci
 cp config/dev.local.yaml.example config/dev.local.yaml
 ```
 
@@ -47,69 +61,76 @@ cp config/dev.local.yaml.example config/dev.local.yaml
 # config/dev.local.yaml
 account: '123456789012'
 domain:
+  apex: example.com
   hostedZoneId: Z0123456789ABCDEFGHIJ
 initialAdmin:
   email: you@example.com
 observability:
   grafana:
-    allowedCidrs: ['203.0.113.10/32'] # initial Grafana allowlist
+    allowedCidrs: ['203.0.113.10/32'] # who can open Grafana
 ```
 
-Hostnames are `<hostname>.<subdomain>.<apex>`: `domain.subdomain: dev` gives `csms.dev.[your-domain].com`, and prod's empty subdomain gives `csms.[your-domain].com`. Rename a service with `services.<name>.hostname`. Turn a service off with `services.<name>.enabled: false`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts).
+Hostnames are `<service>.<subdomain>.<apex>`. With `domain.subdomain: dev` the dashboard is `csms.dev.example.com`. An empty subdomain gives `csms.example.com`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts). Common ones:
 
-### 2. Check and deploy
+| Option                     | What it does                                                       |
+| -------------------------- | ------------------------------------------------------------------ |
+| `image.tag`                | The CSMS release to run, for example `0.1.22`                      |
+| `services.<name>.enabled`  | Turn a service off (for example the simulator in prod)             |
+| `services.<name>.hostname` | Rename a service's hostname                                        |
+| `seedDemo.enabled`         | Load demo sites, stations, and sessions once (not allowed in prod) |
+| `monitoring.alarmEmail`    | Email address that receives alerts                                 |
+| `rotation.databaseDays`    | How often database credentials rotate                              |
+
+### 2. Deploy
 
 ```bash
-npm ci
-npm run typecheck && npm run lint && npm test
+npm run typecheck && npm run lint && npm test                      # optional checks
 
 npx cdk bootstrap aws://<account>/us-east-1 --profile <name>      # once per account and region
-npm run synth -- --context env=dev                                 # renders templates, runs cdk-nag
+npm run synth -- --context env=dev                                 # preview the templates
 npm run deploy -- --context env=dev --all --profile <name>
 ```
 
-A first deploy takes about 30 minutes, mostly Aurora and Valkey. During the App stack deploy a one-shot task runs migrations, creates the application database role, seeds the first admin, and writes settings. Services start only after it exits successfully. If it fails, CloudFormation rolls the App stack back and the error names the log stream.
+The first deploy takes about 30 minutes, mostly for the database and cache. During the deploy a one-time task applies database migrations, creates the application database user, creates the first admin, and writes settings. Services start only after it succeeds. If it fails, the deploy rolls back and the error names the log stream to read.
 
-To update: change the config (or let the release workflow change `image.tag`) and run the same deploy command. To deploy a single stack, name it, for example `Evtivity-Dev-App`.
+### 3. Sign in
 
-## View the services
-
-### URLs
-
-The App stack prints them as outputs:
+The deploy prints each service URL. To list them again:
 
 ```bash
 aws cloudformation describe-stacks --stack-name Evtivity-Dev-App --profile <name> \
   --query "Stacks[0].Outputs[?starts_with(OutputKey,'Url')].[OutputKey,OutputValue]" --output table
 ```
 
-| Service         | dev URL                                                      |
-| --------------- | ------------------------------------------------------------ |
-| Dashboard       | https://csms.dev.[your-domain].com                           |
-| Driver portal   | https://portal.dev.[your-domain].com                         |
-| API             | https://api.dev.[your-domain].com (health: `/v1/health`)     |
-| OCPP (stations) | wss://ocpp.dev.[your-domain].com/<stationId>                 |
-| OCPI            | https://ocpi.dev.[your-domain].com                           |
-| Grafana         | https://grafana.dev.[your-domain].com (allowlisted IPs only) |
+| Service         | URL (dev)                                              |
+| --------------- | ------------------------------------------------------ |
+| Dashboard       | https://csms.dev.example.com                           |
+| Driver portal   | https://portal.dev.example.com                         |
+| API             | https://api.dev.example.com (health: `/v1/health`)     |
+| OCPP (stations) | wss://ocpp.dev.example.com/<stationId>                 |
+| OCPI            | https://ocpi.dev.example.com                           |
+| Grafana         | https://grafana.dev.example.com (allowlisted IPs only) |
 
-### Sign in
-
-The first dashboard admin is `initialAdmin.email`. The password is generated at deploy time, and the dashboard asks for a new one at first sign-in:
+The first dashboard admin is `initialAdmin.email`. Its password is generated during the deploy, and the dashboard asks you to change it at first sign-in:
 
 ```bash
 aws secretsmanager get-secret-value --secret-id evtivity/dev/initial-admin \
   --query SecretString --output text --profile <name>
 ```
 
-Grafana's user is `admin`. Its password is in `evtivity/dev/grafana-admin`.
-
-Grafana answers only to allowlisted addresses. Change the list at any time without a deploy:
+Grafana's user is `admin`, with the password in `evtivity/dev/grafana-admin`. Grafana answers only to allowlisted addresses. Change the list at any time without a deploy:
 
 ```bash
 AWS_PROFILE=<name> ./scripts/grafana-access.sh dev add me     # also: list, remove <cidr>
 ```
 
-### Logs and status
+## Operating
+
+### Upgrade to a new CSMS release
+
+Set `image.tag` to the new [CSMS release](https://github.com/EVtivity/evtivity-csms/releases) and run the deploy command again. Migrations run before any service updates. Each tagged release of this repository sets `image.tag` to the matching CSMS version.
+
+### Logs, status, and shell access
 
 ```bash
 # Service logs (api, ocpp, ocpi, csms, portal, worker, css, db-job, grafana, loki, prometheus)
@@ -119,29 +140,31 @@ aws logs tail /evtivity/dev/api --follow --profile <name>
 aws ecs describe-services --cluster evtivity-dev --services evtivity-dev-api \
   --query 'services[0].[runningCount,desiredCount,deployments[0].rolloutState]' --profile <name>
 
-# Shell into a task (dev and qa have ECS Exec enabled, needs the Session Manager plugin)
+# Open a shell in a task (on in dev and qa, needs the Session Manager plugin)
 aws ecs execute-command --cluster evtivity-dev --task <task-id> --container app \
   --interactive --command sh --profile <name>
 ```
 
-Exec sessions run as root and keep the read-only root filesystem, so only `/tmp` is writable. Every session is logged to `/evtivity/<env>/ecs-exec`. The observability containers are named `grafana`, `loki`, and `prometheus` instead of `app`.
+Shell sessions keep the read-only filesystem, so only `/tmp` is writable, and every session is logged to `/evtivity/<env>/ecs-exec`. The observability containers are named `grafana`, `loki`, and `prometheus` instead of `app`.
 
-In Grafana, the EVtivity folder holds the system metrics, business metrics, logs, and alerts dashboards. Alerts publish to the `evtivity-dev-alerts` SNS topic. Set `monitoring.alarmEmail` to receive them by email.
+Grafana's EVtivity folder has dashboards for system metrics, business metrics, logs, and alerts.
 
-### Stop or remove an environment
+### Pause or remove an environment
 
-- Pause: set `desiredCount: 0` on every service and deploy. Aurora pauses when idle and compute stops billing.
-- Remove: `npm run destroy -- --context env=dev --all --profile <name>`. The dev and qa settings delete all data. Prod retains its database snapshot, buckets, logs, and secrets.
+- **Pause:** set `desiredCount: 0` on every service and deploy. Compute stops billing and the database pauses when idle.
+- **Remove:** `npm run destroy -- --context env=dev --all --profile <name>`. dev and qa delete all data. prod keeps a final database snapshot, its buckets, logs, and secrets.
 
-## More
+## Documentation
 
-- [`docs/deployment.md`](docs/deployment.md): configuration reference, rotation, observability, OCPP TLS, GitHub Actions
-- [`docs/security.md`](docs/security.md): controls, credentials, network, tags
-- [`docs/compliance-exceptions.md`](docs/compliance-exceptions.md): accepted Security Hub gaps
-- [`docs/cost-report.md`](docs/cost-report.md): monthly cost per environment
+- [Deployment guide](docs/deployment.md): every configuration option, credential rotation, observability, OCPP TLS, demo data, GitHub Actions
+- [Security](docs/security.md): controls, credentials, network, and tagging
+- [Compliance exceptions](docs/compliance-exceptions.md): the few AWS best-practice checks that are not met, and why
+- [Cost report](docs/cost-report.md): estimated monthly cost per environment
 
-cdk-nag runs on every synth and `npm test` asserts the Security Hub controls for every environment. Commits follow Conventional Commits.
+## Contributing
+
+Run `npm run typecheck && npm run lint && npm test` before opening a pull request. The tests synthesize every environment and check the security controls. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org).
 
 ## License
 
-[BSL 1.1](LICENSE.md). The Change License is Apache 2.0 effective four years after each release.
+[BSL 1.1](LICENSE.md). The Change License is Apache 2.0, effective four years after each release.
