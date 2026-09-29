@@ -2,6 +2,42 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+
+// The CSMS runs in one currency with two minor units; mirrors
+// SUPPORTED_CURRENCIES in the CSMS repo (packages/lib/src/currency.ts).
+const SUPPORTED_CURRENCIES = [
+  'USD',
+  'EUR',
+  'GBP',
+  'CAD',
+  'AUD',
+  'CHF',
+  'CNY',
+  'INR',
+  'BRL',
+  'MXN',
+  'SEK',
+  'NOK',
+  'DKK',
+  'NZD',
+  'SGD',
+  'HKD',
+  'ZAR',
+  'ILS',
+  'AED',
+  'SAR',
+  'TWD',
+  'THB',
+  'PLN',
+  'CZK',
+  'HUF',
+  'TRY',
+  'COP',
+  'ARS',
+  'PHP',
+  'MYR',
+  'IDR',
+];
 import { SERVICE_CATALOG, SERVICE_NAMES, type ServiceName } from '../catalog.js';
 
 const envName = z.enum(['dev', 'qa', 'prod']);
@@ -430,6 +466,21 @@ export const configSchema = z
           message: 'credentials (keys ending in Enc) must be entered in the dashboard',
         });
       }
+      if (key === 'stripe.currency' || key === 'pricing.currency') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: 'removed: the platform runs in one currency, set company.currency',
+        });
+      }
+    }
+    const currency = c.appSettings['company.currency'];
+    if (currency != null && !SUPPORTED_CURRENCIES.includes(String(currency))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'company.currency'],
+        message: `unsupported currency ${String(currency)}: use an uppercase two-decimal ISO 4217 code such as USD or EUR`,
+      });
     }
     for (const az of c.vpc.availabilityZones) {
       if (!az.startsWith(c.region)) {

@@ -35,6 +35,13 @@ void describe('config validation', () => {
     assert.throws(loadWith('services:\n  api:\n    desiredcount: 3\n'), /desiredcount/);
   });
 
+  void it('rejects the removed currency settings and unsupported company currencies', () => {
+    assert.throws(loadWith('appSettings:\n  stripe.currency: EUR\n'), /one currency/);
+    assert.throws(loadWith('appSettings:\n  pricing.currency: EUR\n'), /one currency/);
+    assert.throws(loadWith('appSettings:\n  company.currency: JPY\n'), /unsupported currency/);
+    assert.doesNotThrow(loadWith('appSettings:\n  company.currency: EUR\n'));
+  });
+
   void it('rejects credentials in appSettings', () => {
     assert.throws(loadWith('appSettings:\n  smtp.passwordEnc: secret\n'), /dashboard/);
   });
