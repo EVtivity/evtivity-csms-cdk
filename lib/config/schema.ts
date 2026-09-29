@@ -329,10 +329,9 @@ export const configSchema = z
       })
       .prefault({}),
 
-    // Prometheus, Grafana, and Loki with the same dashboards and alert rules
-    // as the Helm chart. Prometheus runs in agent mode and writes to Amazon
-    // Managed Service for Prometheus, Loki stores chunks in S3, and a Lambda
-    // forwards the services' CloudWatch logs to Loki.
+    // Prometheus and Grafana with the Helm chart's dashboards and alert
+    // rules. Prometheus runs in agent mode and writes to Amazon Managed
+    // Service for Prometheus. Grafana reads logs from CloudWatch Logs.
     observability: z
       .strictObject({
         enabled: z.boolean().default(false),
@@ -359,15 +358,6 @@ export const configSchema = z
             scrapeIntervalSeconds: z.number().int().min(10).default(60),
             cpu: fargateCpu.default(256),
             memoryMiB: z.number().int().min(512).default(512),
-            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
-          })
-          .prefault({}),
-        loki: z
-          .strictObject({
-            version: z.string().default('3.4.2'),
-            retentionDays: z.number().int().min(1).default(30),
-            cpu: fargateCpu.default(256),
-            memoryMiB: z.number().int().min(512).default(1024),
             capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
           })
           .prefault({}),

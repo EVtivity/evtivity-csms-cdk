@@ -9,7 +9,6 @@ import {
   appBucketName,
   logsBucketName,
   grafanaBucketName,
-  lokiBucketName,
   removalPolicyOf,
   serviceUrl,
 } from '../util.js';
@@ -23,9 +22,7 @@ export interface StorageStackProps extends StackProps {
  * support-case attachments and station images under separate prefixes. The
  * API issues presigned URLs, so browsers upload and download directly and the
  * bucket needs CORS for the dashboard and portal origins. With observability
- * enabled, `grafana` holds Grafana's provisioning files and `loki` holds Loki
- * chunks and indexes. Separate buckets keep Loki's write access away from
- * the provisioning files.
+ * enabled, `grafana` holds Grafana's provisioning files.
  */
 export class StorageStack extends Stack {
   readonly logsBucket: SecureBucket;
@@ -78,18 +75,6 @@ export class StorageStack extends Stack {
         noncurrentVersionExpirationDays: config.storage.noncurrentVersionExpirationDays,
         serverAccessLogsBucket: this.logsBucket,
         serverAccessLogsPrefix: 's3/grafana/',
-      });
-      new SecureBucket(this, 'Loki', {
-        bucketName: lokiBucketName(config),
-        // Loki rewrites index objects constantly. Versions would only
-        // accumulate cost.
-        versioned: false,
-        removalPolicy: removal,
-        // Loki's compactor enforces retention. Expiration is the backstop if
-        // the compactor stops running.
-        expirationDays: config.observability.loki.retentionDays + 7,
-        serverAccessLogsBucket: this.logsBucket,
-        serverAccessLogsPrefix: 's3/loki/',
       });
     }
 

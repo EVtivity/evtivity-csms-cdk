@@ -14,28 +14,23 @@ import {
   aws_efs as efs,
   aws_elasticloadbalancingv2 as elbv2,
   aws_iam as iam,
-  aws_lambda as lambda,
-  aws_lambda_destinations as lambdaDestinations,
-  aws_lambda_nodejs as lambdaNodejs,
   aws_logs as logs,
-  aws_logs_destinations as logDestinations,
   aws_route53 as route53,
   aws_route53_targets as targets,
   aws_s3 as s3,
   aws_s3_deployment as s3deploy,
   aws_secretsmanager as secretsmanager,
   aws_sns as sns,
-  aws_sqs as sqs,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { API_METRICS_PORT, GRAFANA_PORT, LOKI_PORT, discoveryName } from '../catalog.js';
+import { API_METRICS_PORT, GRAFANA_PORT, discoveryName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import { tagService } from '../tagging.js';
 import { addExecVolumes } from './exec-support.js';
+import { grafanaLogsDashboard } from './log-queries.js';
 import {
   grafanaBucketName,
   grafanaHost,
-  lokiBucketName,
   namePrefix,
   removalPolicyOf,
   secretPrefix,
@@ -51,7 +46,7 @@ export interface ObservabilityProps {
   httpsListener: elbv2.IApplicationListener;
   hostedZone: route53.IHostedZone;
   alertTopic: sns.ITopic;
-  /** Loki `service` label -> log group to forward. */
+  /** Service label -> log group, for the Grafana logs dashboard. */
   logGroups: Record<string, logs.ILogGroup>;
 }
 
@@ -61,7 +56,6 @@ const AWS_CLI_IMAGE = 'public.ecr.aws/aws-cli/aws-cli:2.37.4';
 // Users baked into the upstream images. Every container runs as one of them.
 const GRAFANA_USER = { uid: '472', gid: '0' };
 const PROMETHEUS_USER = { uid: '65534', gid: '65534' };
-const LOKI_USER = { uid: '10001', gid: '10001' };
 
 type Mount =
   // Image-declared VOLUME path: Fargate copies the directory, with its owner.
@@ -92,27 +86,24 @@ interface ServiceOptions {
 }
 
 /**
- * Prometheus, Loki, and Grafana with the Helm chart's dashboards and alert
- * rules.
+ * Prometheus and Grafana with the Helm chart's dashboards and alert rules.
  *
  * - Prometheus runs in agent mode: it scrapes the API metrics endpoint
  *   through Cloud Map and remote-writes to Amazon Managed Service for
  *   Prometheus (AMP). Its WAL lives in the image's /prometheus volume.
- * - Loki stores chunks and indexes in S3 and its WAL on EFS.
- * - A Lambda copies each service's CloudWatch logs to Loki. CloudWatch stays
- *   the system of record.
+ * - Grafana reads logs straight from CloudWatch Logs through its CloudWatch
+ *   data source. The Helm chart uses Loki for this. On AWS, CloudWatch
+ *   already holds every log line, so a second store would only duplicate it.
  * - Grafana keeps its database on EFS and is provisioned from S3 at start:
  *   dashboards, alert rules, and the routing policy from the CSMS repo, plus
- *   generated datasources (AMP through the task role, Loki) and an SNS
- *   contact point.
+ *   generated data sources (AMP and CloudWatch through the task role), the
+ *   CloudWatch logs dashboard, and an SNS contact point.
  *
  * Every container runs as its image's non-root user with a read-only root
  * filesystem.
  */
 export class Observability extends Construct {
   readonly grafanaHost: string;
-  /** Pushes CloudWatch log events to Loki. Monitoring alarms on its errors. */
-  readonly lokiForwarder: lambda.IFunction;
   private readonly props: ObservabilityProps;
   private readonly fileSystem: efs.FileSystem;
 
@@ -123,13 +114,11 @@ export class Observability extends Construct {
     const o = config.observability;
     const prefix = namePrefix(config);
     const bucket = s3.Bucket.fromBucketName(this, 'GrafanaBucket', grafanaBucketName(config));
-    const lokiBucket = s3.Bucket.fromBucketName(this, 'LokiBucket', lokiBucketName(config));
-    const lokiUrl = `http://loki.${props.namespace}:${String(LOKI_PORT)}`;
 
     const workspace = new aps.CfnWorkspace(this, 'Amp', { alias: prefix });
     const ampEndpoint = workspace.attrPrometheusEndpoint;
 
-    // --- EFS for Loki and Grafana state ---
+    // --- EFS for Grafana's database ---
 
     const efsSg = new ec2.SecurityGroup(this, 'EfsSg', {
       vpc: props.vpc,
@@ -155,7 +144,6 @@ export class Observability extends Construct {
         createAcl: { ownerUid: user.uid, ownerGid: user.gid, permissions: '750' },
         posixUser: { uid: user.uid, gid: user.gid },
       });
-    const lokiAp = accessPoint('loki', LOKI_USER);
     const grafanaAp = accessPoint('grafana', GRAFANA_USER);
 
     // --- Prometheus (agent) ---
@@ -198,74 +186,6 @@ export class Observability extends Construct {
       new iam.PolicyStatement({ actions: ['aps:RemoteWrite'], resources: [workspace.attrArn] }),
     );
 
-    // --- Loki ---
-
-    const lokiConfig = [
-      'auth_enabled: false',
-      'server:',
-      `  http_listen_port: ${String(LOKI_PORT)}`,
-      '  log_level: warn',
-      'common:',
-      '  path_prefix: /loki',
-      '  replication_factor: 1',
-      '  ring:',
-      '    kvstore:',
-      '      store: inmemory',
-      '  storage:',
-      '    s3:',
-      `      bucketnames: ${lokiBucket.bucketName}`,
-      `      region: ${Aws.REGION}`,
-      'schema_config:',
-      '  configs:',
-      "    - from: '2024-01-01'",
-      '      store: tsdb',
-      '      object_store: s3',
-      '      schema: v13',
-      '      index:',
-      '        prefix: loki_index_',
-      '        period: 24h',
-      'compactor:',
-      '  working_directory: /loki/compactor',
-      '  retention_enabled: true',
-      '  delete_request_store: s3',
-      'limits_config:',
-      `  retention_period: ${String(o.loki.retentionDays * 24)}h`,
-      '  reject_old_samples: true',
-      '  reject_old_samples_max_age: 168h',
-      '  ingestion_rate_mb: 4',
-      '  ingestion_burst_size_mb: 6',
-      'analytics:',
-      '  reporting_enabled: false',
-    ].join('\n');
-
-    const loki = this.service('loki', {
-      image: `grafana/loki:${o.loki.version}`,
-      user: LOKI_USER,
-      cpu: o.loki.cpu,
-      memoryMiB: o.loki.memoryMiB,
-      capacity: o.loki.capacity,
-      port: LOKI_PORT,
-      healthPath: '/ready',
-      environment: { LOKI_CONFIG: lokiConfig },
-      command: [
-        'printf "%s" "$LOKI_CONFIG" > /loki/loki.yaml',
-        'exec /usr/bin/loki -config.file=/loki/loki.yaml',
-      ].join(' && '),
-      mounts: [{ kind: 'efs', path: '/loki', accessPoint: lokiAp }],
-      // One writer on the WAL and the in-memory ring.
-      singleWriter: true,
-    });
-    // Chunks, indexes, and compactor state. Loki owns the whole bucket.
-    loki.taskDefinition.addToTaskRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
-        resources: [lokiBucket.arnForObjects('*')],
-      }),
-    );
-    loki.taskDefinition.addToTaskRolePolicy(
-      new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [lokiBucket.bucketArn] }),
-    );
-
     // --- Grafana provisioning ---
 
     const datasources = [
@@ -283,14 +203,19 @@ export class Observability extends Construct {
       '      sigV4Auth: true',
       '      sigV4AuthType: default',
       `      sigV4Region: ${Aws.REGION}`,
-      '  - name: Loki',
-      '    type: loki',
-      '    uid: loki',
-      '    access: proxy',
-      `    url: ${lokiUrl}`,
-      '    isDefault: false',
+      '  - name: CloudWatch',
+      '    type: cloudwatch',
+      '    uid: cloudwatch',
       '    editable: false',
+      '    jsonData:',
+      '      authType: default',
+      `      defaultRegion: ${Aws.REGION}`,
     ].join('\n');
+    const logsDashboard = grafanaLogsDashboard(
+      Object.fromEntries(
+        Object.entries(props.logGroups).map(([label, g]) => [label, g.logGroupName]),
+      ),
+    );
     // The copied routing policy sends everything to `email-alerts`. Here that
     // receiver publishes to the environment's SNS topic, whose email
     // subscription delivers the message.
@@ -332,6 +257,7 @@ export class Observability extends Construct {
       sources: [
         s3deploy.Source.asset(ASSET_DIR),
         s3deploy.Source.data('provisioning/datasources/datasources.yml', datasources),
+        s3deploy.Source.jsonData('dashboards/logs.json', logsDashboard),
         s3deploy.Source.data('provisioning/alerting/contactpoints.yml', contactPoints),
         s3deploy.Source.data('provisioning/alerting/templates.yml', templates),
       ],
@@ -377,12 +303,15 @@ export class Observability extends Construct {
         AWS_REGION: Aws.REGION,
         // Changes to the dashboards or alert files roll the service so
         // Grafana re-reads its provisioning.
-        // Resolve the tokens (AMP endpoint, topic ARN) to their CloudFormation
-        // form first. Unresolved token strings carry a global counter that
-        // shifts when unrelated constructs change, which would restart Grafana.
+        // Resolve the tokens (AMP endpoint, topic ARN, log group names) to
+        // their CloudFormation form first. Unresolved token strings carry a
+        // global counter that shifts when unrelated constructs change, which
+        // would restart Grafana.
         PROVISIONING_REVISION: hashDirectory(
           ASSET_DIR,
-          JSON.stringify(Stack.of(this).resolve([datasources, contactPoints, templates])),
+          JSON.stringify(
+            Stack.of(this).resolve([datasources, contactPoints, templates, logsDashboard]),
+          ),
         ),
       },
       secrets: { GF_SECURITY_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(adminSecret) },
@@ -397,6 +326,29 @@ export class Observability extends Construct {
       new iam.PolicyStatement({
         actions: ['aps:QueryMetrics', 'aps:GetSeries', 'aps:GetLabels', 'aps:GetMetricMetadata'],
         resources: [workspace.attrArn],
+      }),
+    );
+    // Logs Insights queries for the logs dashboard, scoped to this
+    // environment's log groups. Listing log groups and reading or stopping a
+    // query by id take no log group resource.
+    grafana.taskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['logs:StartQuery', 'logs:GetLogGroupFields', 'logs:GetLogEvents'],
+        resources: Object.values(props.logGroups).map((g) => g.logGroupArn),
+      }),
+    );
+    grafana.taskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['logs:DescribeLogGroups', 'logs:GetQueryResults', 'logs:StopQuery'],
+        resources: ['*'],
+      }),
+    );
+    // Read-only CloudWatch metrics for the CloudWatch data source. These
+    // actions take no resource, and without them its health check fails.
+    grafana.taskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cloudwatch:ListMetrics', 'cloudwatch:GetMetricData'],
+        resources: ['*'],
       }),
     );
     alertTopic.grantPublish(grafana.taskDefinition.taskRole);
@@ -436,58 +388,6 @@ export class Observability extends Construct {
       recordName: this.grafanaHost,
       target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(props.alb)),
     });
-
-    // --- CloudWatch Logs -> Loki ---
-
-    const forwarderLogs = new logs.LogGroup(this, 'ForwarderLogs', {
-      logGroupName: `/evtivity/${config.env}/loki-forwarder`,
-      retention: config.logs.retentionDays,
-      removalPolicy: removalPolicyOf(config.logs.removal),
-    });
-    const forwarder = (this.lokiForwarder = new lambdaNodejs.NodejsFunction(this, 'LokiForwarder', {
-      entry: join(import.meta.dirname, '../../lambda/loki-forwarder.ts'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_24_X,
-      architecture: lambda.Architecture.ARM_64,
-      timeout: Duration.seconds(30),
-      memorySize: 256,
-      vpc: props.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [props.securityGroup],
-      logGroup: forwarderLogs,
-      environment: {
-        LOKI_URL: lokiUrl,
-        ENVIRONMENT: config.env,
-        SERVICE_BY_LOG_GROUP: JSON.stringify(
-          Object.fromEntries(
-            Object.entries(props.logGroups).map(([label, g]) => [g.logGroupName, label]),
-          ),
-        ),
-      },
-      bundling: { minify: true, sourceMap: false, target: 'node24' },
-      // Batches that still fail after the retries (Loki down for longer
-      // than a redeploy) land here instead of disappearing. CloudWatch
-      // Logs keeps the originals either way.
-      onFailure: new lambdaDestinations.SqsDestination(
-        new sqs.Queue(this, 'ForwarderFailures', {
-          queueName: `${prefix}-loki-forwarder-failures`,
-          encryption: sqs.QueueEncryption.SQS_MANAGED,
-          enforceSSL: true,
-          retentionPeriod: Duration.days(14),
-        }),
-      ),
-      retryAttempts: 2,
-    }));
-    const destination = new logDestinations.LambdaDestination(forwarder);
-    for (const [label, group] of Object.entries(props.logGroups)) {
-      new logs.SubscriptionFilter(this, `Forward-${label}`, {
-        logGroup: group,
-        destination,
-        filterPattern: logs.FilterPattern.allEvents(),
-        filterName: `${prefix}-loki-forwarder`,
-      });
-    }
-    forwarder.node.addDependency(loki.service);
   }
 
   private service(

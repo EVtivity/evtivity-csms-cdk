@@ -140,7 +140,6 @@ function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string>
       'S3 buckets for load balancer access logs',
       'application files',
       obs && 'Grafana provisioning',
-      obs && 'Loki log storage',
     ]),
     data: list([
       `Aurora PostgreSQL ${config.aurora.mode === 'serverless' ? 'Serverless v2 ' : ''}cluster`,
@@ -163,7 +162,7 @@ function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string>
       config.ocppTls.enabled && 'OCPP TLS network load balancer',
       'alerts topic',
       (config.monitoring.dashboard || config.monitoring.alarms) && 'CloudWatch monitoring',
-      obs && 'observability (Prometheus, Loki, Grafana)',
+      obs && 'observability (Prometheus, Grafana)',
       config.ecs.redeployEveryDays > 0 && 'scheduled redeploys',
     ]),
   };

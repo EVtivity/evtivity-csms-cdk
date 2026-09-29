@@ -12,26 +12,22 @@ flowchart LR
   API[API service<br/>/metrics on 9091] -->|scrape every 60s| Agent[Prometheus agent<br/>Fargate]
   Agent -->|remote_write, SigV4| AMP[(Amazon Managed<br/>Service for Prometheus)]
   Services[All services] -->|awslogs| CWL[(CloudWatch Logs)]
-  CWL -->|subscription filter| Fwd[Loki forwarder<br/>Lambda]
-  Fwd -->|push| Loki[Loki<br/>Fargate]
-  Loki --> S3[(S3: chunks and index)]
-  Loki --> EFS1[(EFS: WAL)]
   Grafana[Grafana<br/>Fargate] -->|PromQL| AMP
-  Grafana -->|LogQL| Loki
-  Grafana --> EFS2[(EFS: Grafana database)]
+  Grafana -->|Logs Insights| CWL
+  Grafana --> EFS[(EFS: Grafana database)]
   Grafana -->|alerts| SNS[SNS alerts topic]
   CW[CloudWatch alarms<br/>and EventBridge rules] --> SNS
   SNS --> Email[alarmEmail]
 ```
 
-| Component                             | What it does                                                                                                                                                          | Where its data lives                            |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Prometheus agent                      | Scrapes the API's `/metrics` endpoint every `observability.prometheus.scrapeIntervalSeconds` and forwards the samples. Stores no history and answers no queries.      | Only a small retry buffer on the task's disk    |
-| Amazon Managed Service for Prometheus | Stores the metrics and answers Grafana's PromQL queries. One workspace per environment, `evtivity-<env>`.                                                             | The managed service, 150 days (service default) |
-| Loki forwarder                        | A Lambda subscribed to every service's CloudWatch log group. Pushes each batch to Loki with a `service` label (`api`, `ocpp`, `simulator`, `postgres`, `redis`, ...). | None                                            |
-| Loki                                  | Stores logs and answers Grafana's LogQL queries.                                                                                                                      | S3 (`loki` bucket), write-ahead log on EFS      |
-| Grafana                               | Dashboards and alert rules. Provisioned at every start from the `grafana` bucket: dashboards, alert rules, data sources, SNS contact point.                           | Its own settings and users on EFS               |
-| CloudWatch Logs                       | The system of record for logs. Every service writes here first. Loki holds a copy for Grafana.                                                                        | CloudWatch, `logs.retentionDays`                |
+| Component                             | What it does                                                                                                                                                                                | Where its data lives                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Prometheus agent                      | Scrapes the API's `/metrics` endpoint every `observability.prometheus.scrapeIntervalSeconds` and forwards the samples. Stores no history and answers no queries.                            | Only a small retry buffer on the task's disk    |
+| Amazon Managed Service for Prometheus | Stores the metrics and answers Grafana's PromQL queries. One workspace per environment, `evtivity-<env>`.                                                                                   | The managed service, 150 days (service default) |
+| Grafana                               | Dashboards and alert rules. Provisioned at every start from the `grafana` bucket: dashboards, alert rules, data sources (Prometheus and CloudWatch), the logs dashboard, SNS contact point. | Its own settings and users on EFS               |
+| CloudWatch Logs                       | Every service's logs. Grafana queries it directly with Logs Insights through its CloudWatch data source.                                                                                    | CloudWatch, `logs.retentionDays`                |
+
+Why there is no Loki: the Helm chart ships logs to Loki because Kubernetes has no central log store. On AWS every service already writes to CloudWatch Logs, so Grafana reads it directly and a second copy would only add cost and moving parts. The logs dashboard is the one Grafana dashboard that differs from the Helm chart: the CDK generates it with Logs Insights queries instead of LogQL, with the same UID, title, and layout.
 
 Why the metrics store is a managed service: Prometheus needs a durable disk. Fargate tasks lose their local disk on every restart (deploys, the weekly credential redeploy, Spot interruptions), and Prometheus does not support NFS storage such as EFS. The Helm chart runs a Prometheus server on a persistent volume instead. The queries, dashboards, and alert rules are identical in both.
 
@@ -39,24 +35,24 @@ Why the metrics store is a managed service: Prometheus needs a durable disk. Far
 
 Every service writes to CloudWatch Logs first. Grafana's logs dashboard and the CloudWatch logs dashboard both read these groups.
 
-| Log group                                                         | What                                                         |
-| ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `/evtivity/<env>/api`                                             | REST API behind the dashboard and the driver portal          |
-| `/evtivity/<env>/ocpp`                                            | OCPP server: station connections, transactions, event emails |
-| `/evtivity/<env>/worker`                                          | Background jobs: reservations, reports, notifications        |
-| `/evtivity/<env>/ocpi`                                            | OCPI roaming                                                 |
-| `/evtivity/<env>/css`                                             | Charging station simulator                                   |
-| `/evtivity/<env>/csms`, `/evtivity/<env>/portal`                  | nginx for the dashboard and portal                           |
-| `/evtivity/<env>/db-job`                                          | Migrations, role grants, settings, and the demo seed         |
-| `/aws/rds/cluster/evtivity-<env>/postgresql`                      | Aurora PostgreSQL                                            |
-| `/evtivity/<env>/valkey-slow-log`                                 | Valkey slow commands                                         |
-| `/evtivity/<env>/grafana`, `loki`, `prometheus`, `loki-forwarder` | The observability stack itself                               |
+| Log group                                               | What                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| `/evtivity/<env>/api`                                   | REST API behind the dashboard and the driver portal          |
+| `/evtivity/<env>/ocpp`                                  | OCPP server: station connections, transactions, event emails |
+| `/evtivity/<env>/worker`                                | Background jobs: reservations, reports, notifications        |
+| `/evtivity/<env>/ocpi`                                  | OCPI roaming                                                 |
+| `/evtivity/<env>/css`                                   | Charging station simulator                                   |
+| `/evtivity/<env>/csms`, `/evtivity/<env>/portal`        | nginx for the dashboard and portal                           |
+| `/evtivity/<env>/db-job`                                | Migrations, role grants, settings, and the demo seed         |
+| `/aws/rds/cluster/evtivity-<env>/postgresql`            | Aurora PostgreSQL                                            |
+| `/evtivity/<env>/valkey-slow-log`                       | Valkey slow commands                                         |
+| `/evtivity/<env>/grafana`, `/evtivity/<env>/prometheus` | The observability stack itself                               |
 
 Where to look:
 
-1. **Grafana**, EVtivity folder, **Logs**: the "All Errors" panel covers every service, then errors and full logs per service. Loki keeps `observability.loki.retentionDays`.
+1. **Grafana**, EVtivity folder, **Logs**: the "All Errors" panel covers every service, then errors and full logs per service.
 2. **CloudWatch dashboard `evtivity-<env>-logs`**: the same per-service error tables through Logs Insights, in the AWS console.
-3. **The CLI**, for exact searches or anything older than Loki keeps:
+3. **The CLI**, for exact searches and scripting:
 
 ```bash
 # Follow one service
@@ -98,10 +94,10 @@ All four are in the EVtivity folder:
 | ---------------- | ------------------------------------------------------------------------------------------------------- | ---------- |
 | System metrics   | API request rate, errors, latency by route, Node.js heap, event loop lag, GC, OCPP connections and ping | Prometheus |
 | Business metrics | Drivers, sites, stations, connectors, sessions, energy, revenue, reservations, payments, popular hours  | Prometheus |
-| Logs             | Errors and full logs per service (API, OCPP, worker, simulator, PostgreSQL, Valkey, csms, portal)       | Loki       |
+| Logs             | Errors and full logs per service (API, OCPP, worker, simulator, PostgreSQL, Valkey, csms, portal)       | CloudWatch |
 | Alerts           | Firing alerts and the metrics behind each alert rule                                                    | Prometheus |
 
-The dashboards and alert rules are copied from the CSMS repo, which is their source of truth (the Helm chart copies the same files). After a change there:
+The dashboards and alert rules are copied from the CSMS repo, which is their source of truth (the Helm chart copies the same files). The sync skips the Helm logs dashboard, since the CDK generates its own for CloudWatch (`lib/constructs/log-queries.ts`). After a change in the CSMS repo:
 
 ```bash
 ./scripts/sync-observability.sh <csms repo>/prometheus/grafana
@@ -119,7 +115,7 @@ With `monitoring.dashboard: true` (the default), each environment gets three das
 | `evtivity-<env>-logs`   | Logs Insights tables: errors across every service, then errors and recent logs per service. Same log groups as the Grafana logs dashboard.                                                                                                     |
 | `evtivity-<env>-alerts` | Status of every CloudWatch alarm, newest change first.                                                                                                                                                                                         |
 
-The system and alerts dashboards link to Grafana for application and business metrics. Logs Insights bills for the data each widget scans, so the logs dashboard defaults to the last hour.
+The system and alerts dashboards link to Grafana for application and business metrics. Logs Insights bills for the data each query scans (about $0.005 per GB), in both the CloudWatch and the Grafana logs dashboards, so both default to the last hour.
 
 ## Alerts
 
@@ -138,46 +134,42 @@ With `monitoring.alarms: true`:
 - Aurora capacity (or CPU), connections near the services' pool limit, reader lag
 - Valkey memory and engine CPU on every node
 - NAT instance status checks, or NAT gateway port exhaustion
-- The Loki forwarder failing to push logs, when observability is on. Failed batches also land in the `evtivity-<env>-loki-forwarder-failures` queue either way. The originals stay in CloudWatch Logs.
 
 The NAT instance also recovers without anyone subscribed: EC2 moves it to new hardware after a host failure (automatic recovery), and an alarm reboots it when it stops responding.
 
 ## Configuration
 
-| Option                                                   | Default    | Notes                                                                        |
-| -------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
-| `observability.enabled`                                  | `false`    | Prometheus agent, Loki, Grafana, the forwarder, the workspace                |
-| `observability.grafana.allowedCidrs`                     | `[]`       | Seeds the Grafana allowlist                                                  |
-| `observability.grafana.hostname`                         | `grafana`  | `<hostname>.<subdomain>.<apex>`                                              |
-| `observability.prometheus.scrapeIntervalSeconds`         | `60`       | Same as the Helm chart                                                       |
-| `observability.loki.retentionDays`                       | `30`       | Loki deletes older logs. The bucket expires them 7 days later as a backstop. |
-| `observability.<component>.cpu`, `memoryMiB`, `capacity` | see schema | `FARGATE_SPOT` is about 70% cheaper for dev                                  |
-| `monitoring.dashboard`                                   | `true`     | The three CloudWatch dashboards                                              |
-| `monitoring.alarms`                                      | `true`     | The CloudWatch alarms listed above                                           |
-| `monitoring.alarmEmail`                                  | none       | Subscribes an address to the alerts topic                                    |
-| `logs.retentionDays`                                     | `30`       | CloudWatch log groups                                                        |
+| Option                                                   | Default    | Notes                                                       |
+| -------------------------------------------------------- | ---------- | ----------------------------------------------------------- |
+| `observability.enabled`                                  | `false`    | Prometheus agent, Grafana, the metrics workspace            |
+| `observability.grafana.allowedCidrs`                     | `[]`       | Seeds the Grafana allowlist                                 |
+| `observability.grafana.hostname`                         | `grafana`  | `<hostname>.<subdomain>.<apex>`                             |
+| `observability.prometheus.scrapeIntervalSeconds`         | `60`       | Same as the Helm chart                                      |
+| `observability.<component>.cpu`, `memoryMiB`, `capacity` | see schema | `FARGATE_SPOT` is about 70% cheaper for dev                 |
+| `monitoring.dashboard`                                   | `true`     | The three CloudWatch dashboards                             |
+| `monitoring.alarms`                                      | `true`     | The CloudWatch alarms listed above                          |
+| `monitoring.alarmEmail`                                  | none       | Subscribes an address to the alerts topic                   |
+| `logs.retentionDays`                                     | `30`       | CloudWatch log groups, which Grafana's logs dashboard reads |
 
 ## Network
 
-Grafana, Loki, Prometheus, and the forwarder run in their own security group. Grafana is reachable from the internet through the load balancer, so it has no network path to Aurora or Valkey. Allowed paths:
+Grafana and Prometheus run in their own security group. Grafana is reachable from the internet through the load balancer, so it has no network path to Aurora or Valkey. Allowed paths:
 
 - Load balancer to Grafana on 3000
-- Grafana and the forwarder to Loki on 3100
 - Prometheus to the API metrics port 9091
 
 When a change moves a service to a different security group, deploy it so the new rules exist before the old ones go away. The Network stack deploys before the App stack, so removing a rule there cuts off a service that the App stack has not moved yet.
 
 ## Cost
 
-Observability adds about $9 to $12 per month in dev (Fargate Spot) and $26 to $32 in qa and prod: three small Fargate tasks, EFS, the metrics workspace (about $1 to $5 at one scrape target per minute), S3, and the forwarder. Environments without `waf.enabled` also pay about $6 per month for the web ACL that guards Grafana. See [`cost-report.md`](cost-report.md).
+Observability adds about $5 to $11 per month in dev (Fargate Spot) and $15 to $21 in qa and prod: two small Fargate tasks, EFS, the metrics workspace (about $1 to $5 at one scrape target per minute), and S3, plus Logs Insights for each logs dashboard view. Environments without `waf.enabled` also pay about $6 per month for the web ACL that guards Grafana. See [`cost-report.md`](cost-report.md).
 
 ## Troubleshooting
 
-| Symptom                                        | Check                                                                                                                                                               |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grafana returns 403                            | Your address is not in the allowlist. `./scripts/grafana-access.sh <env> add me`                                                                                    |
-| Grafana returns 503                            | The task is starting or failing its health check. First start runs database migrations on EFS and can take up to 5 minutes. `aws logs tail /evtivity/<env>/grafana` |
-| Metrics dashboards show "No data"              | `aws logs tail /evtivity/<env>/prometheus` for scrape or remote-write errors. The API must be running.                                                              |
-| Logs dashboard is empty or has gaps            | `aws logs tail /evtivity/<env>/loki-forwarder`, and the `evtivity-<env>-loki-forwarder-failures` queue                                                              |
-| No alert emails                                | The subscription must be confirmed. `aws sns list-subscriptions-by-topic` shows `PendingConfirmation` until then.                                                   |
-| Loki logs "failed to remove working directory" | Harmless. EFS (NFS) holds a deleted file open briefly, and the next compaction removes it.                                                                          |
+| Symptom                                   | Check                                                                                                                                                                                                                              |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grafana returns 403                       | Your address is not in the allowlist. `./scripts/grafana-access.sh <env> add me`                                                                                                                                                   |
+| Grafana returns 503                       | The task is starting or failing its health check. First start runs database migrations on EFS and can take up to 5 minutes. `aws logs tail /evtivity/<env>/grafana`                                                                |
+| Metrics dashboards show "No data"         | `aws logs tail /evtivity/<env>/prometheus` for scrape or remote-write errors. The API must be running.                                                                                                                             |
+| Logs dashboard is empty or shows an error | Test the CloudWatch data source (Connections, Data sources, CloudWatch). Its health check covers both logs and metrics. Grafana's task role must allow `logs:StartQuery` on the log group. `aws logs tail /evtivity/<env>/grafana` |
+| No alert emails                           | The subscription must be confirmed. `aws sns list-subscriptions-by-topic` shows `PendingConfirmation` until then.                                                                                                                  |

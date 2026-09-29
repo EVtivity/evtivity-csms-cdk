@@ -6,6 +6,7 @@ import { Construct } from 'constructs';
 import type { ServiceName } from '../catalog.js';
 import type { Config } from '../config/index.js';
 import type { AppService } from './app-service.js';
+import { ALL_QUERY, ERROR_QUERY, orderedLogGroups } from './log-queries.js';
 import type { EnvMetrics } from './metrics.js';
 
 export interface DashboardsProps {
@@ -19,13 +20,6 @@ export interface DashboardsProps {
   /** Grafana, for application and business metrics. */
   grafanaUrl?: string;
 }
-
-const ERROR_QUERY =
-  'fields @timestamp, @logStream, @message\n' +
-  '| filter @message like /(?i)(error|fatal|panic)/ and @message not like /faultCode/\n' +
-  '| sort @timestamp desc\n' +
-  '| limit 100';
-const ALL_QUERY = 'fields @timestamp, @message\n| sort @timestamp desc\n| limit 100';
 
 /**
  * CloudWatch dashboards built only from AWS data: system (load balancer,
@@ -183,21 +177,21 @@ export class Dashboards extends Construct {
       dashboardName: `${prefix}-logs`,
       defaultInterval: Duration.hours(1),
     });
-    const groups = Object.entries(props.logGroups);
+    const groups = orderedLogGroups(props.logGroups);
     logDashboard.addWidgets(
       new cw.LogQueryWidget({
         title: 'Errors in every service',
         width: 24,
         height: 8,
-        logGroupNames: groups.map(([, g]) => g.logGroupName),
+        logGroupNames: groups.map(([, , g]) => g.logGroupName),
         queryString: ERROR_QUERY,
         view: cw.LogQueryVisualizationType.TABLE,
       }),
     );
-    for (const [label, group] of groups) {
+    for (const [, title, group] of groups) {
       logDashboard.addWidgets(
         new cw.LogQueryWidget({
-          title: `${label}: errors`,
+          title: `${title}: errors`,
           width: 12,
           height: 6,
           logGroupNames: [group.logGroupName],
@@ -205,7 +199,7 @@ export class Dashboards extends Construct {
           view: cw.LogQueryVisualizationType.TABLE,
         }),
         new cw.LogQueryWidget({
-          title: `${label}: all logs`,
+          title: `${title}: all logs`,
           width: 12,
           height: 6,
           logGroupNames: [group.logGroupName],

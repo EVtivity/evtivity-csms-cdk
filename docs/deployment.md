@@ -13,7 +13,7 @@
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `Evtivity-<Env>-Network` | VPC, NAT (fck-nat or gateway), flow logs, S3 gateway endpoint, ALB/task/NLB security groups |
 | `Evtivity-<Env>-Domain`  | ACM certificate for `<zone>` and `*.<zone>`                                                 |
-| `Evtivity-<Env>-Storage` | Logs bucket (ALB, S3 access, and VPC flow logs), app bucket, Grafana and Loki buckets       |
+| `Evtivity-<Env>-Storage` | Logs bucket (ALB, S3 access, and VPC flow logs), app bucket, Grafana bucket                 |
 | `Evtivity-<Env>-Data`    | Aurora PostgreSQL, Valkey, secrets, rotation                                                |
 | `Evtivity-<Env>-Alb`     | ALB, listeners, WAF                                                                         |
 | `Evtivity-<Env>-App`     | ECS cluster, database job, services, DNS records, OCPP TLS NLB, redeploy schedules, alarms  |
@@ -54,11 +54,10 @@ One-time steps before the first deploy of this version to an environment that al
    - `/aws/lambda/evtivity-<env>-db-master-rotation`
    - `/aws/lambda/evtivity-<env>-db-app-rotation`
 
-   Deleting the PostgreSQL group also deletes the Loki subscription filter on it. This version renames the filters (`evtivity-<env>-loki-forwarder`), so the deploy creates new ones instead of updating the missing one.
-
-2. Remove `vpc.flowLogRetentionDays` from your config files and `CDK_LOCAL_CONFIG`. Flow logs now go to the logs bucket and follow `storage.logsExpirationDays`.
-3. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
-4. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
+2. Remove `observability.loki` from your config files and `CDK_LOCAL_CONFIG`. Grafana now reads logs from CloudWatch, and the deploy removes Loki, the log forwarder, and its subscription filters. With `storage.removal: retain` (prod), the `evtivity-<env>-loki-<account>` bucket stays behind. Empty and delete it when you no longer need the old Loki data.
+3. Remove `vpc.flowLogRetentionDays` from your config files and `CDK_LOCAL_CONFIG`. Flow logs now go to the logs bucket and follow `storage.logsExpirationDays`.
+4. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
+5. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
 
 ## Configuration
 

@@ -22,7 +22,7 @@ Deploy [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms), the open char
 - **Managed data stores:** Aurora PostgreSQL Serverless v2 and ElastiCache Valkey, in isolated subnets, encrypted, with TLS required.
 - **One load balancer for every service**, routed by hostname, with TLS certificates issued and renewed for you. An optional network load balancer passes OCPP security profile 3 (mutual TLS) straight to the OCPP server.
 - **Automatic credential rotation** for the database and cache users, with no downtime.
-- **Observability:** Prometheus, Loki, and Grafana with the same dashboards and alert rules as the Helm chart. Alerts go to an SNS topic you can subscribe to.
+- **Observability:** Prometheus and Grafana with the Helm chart's dashboards and alert rules, reading logs straight from CloudWatch. Alerts go to an SNS topic you can subscribe to.
 - **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall with managed rules in qa and prod, and automated checks against the AWS Foundational Security Best Practices on every build.
 - **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, Spot capacity, a database that pauses when idle) and a highly available production layout.
 
@@ -152,7 +152,7 @@ Set `image.tag` to the new [CSMS release](https://github.com/EVtivity/evtivity-c
 ### Logs, status, and shell access
 
 ```bash
-# Service logs (api, ocpp, ocpi, csms, portal, worker, css, db-job, grafana, loki, prometheus)
+# Service logs (api, ocpp, ocpi, csms, portal, worker, css, db-job, grafana, prometheus)
 aws logs tail /evtivity/dev/api --follow --profile <name>
 
 # Running tasks and deployment state
@@ -164,7 +164,7 @@ aws ecs execute-command --cluster evtivity-dev --task <task-id> --container app 
   --interactive --command sh --profile <name>
 ```
 
-Shell sessions keep the read-only filesystem, so only `/tmp` is writable, and every session is logged to `/evtivity/<env>/ecs-exec`. The observability containers are named `grafana`, `loki`, and `prometheus` instead of `app`.
+Shell sessions keep the read-only filesystem, so only `/tmp` is writable, and every session is logged to `/evtivity/<env>/ecs-exec`. The observability containers are named `grafana` and `prometheus` instead of `app`.
 
 Grafana's EVtivity folder has dashboards for system metrics, business metrics, logs, and alerts.
 

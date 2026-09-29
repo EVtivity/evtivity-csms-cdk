@@ -72,11 +72,6 @@ export function grafanaBucketName(config: Config): string {
   return `${namePrefix(config)}-grafana-${config.account}`;
 }
 
-/** Loki storage bucket name (chunks and indexes). */
-export function lokiBucketName(config: Config): string {
-  return `${namePrefix(config)}-loki-${config.account}`;
-}
-
 /** Grafana's public hostname, e.g. grafana.dev.evtivity.com. */
 export function grafanaHost(config: Config): string {
   return `${config.observability.grafana.hostname}.${zoneApex(config)}`;

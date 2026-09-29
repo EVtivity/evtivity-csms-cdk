@@ -95,9 +95,6 @@ observability:
     capacity: FARGATE_SPOT
   prometheus:
     capacity: FARGATE_SPOT
-  loki:
-    retentionDays: 14
-    capacity: FARGATE_SPOT
 services:
   api:
     enabled: true

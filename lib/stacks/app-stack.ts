@@ -448,8 +448,8 @@ export class AppStack extends Stack {
 
     // Log groups by the `service` label the Grafana logs dashboard filters
     // on, matching the Helm and Compose names (the simulator is `simulator`,
-    // Valkey `redis`). Loki and the CloudWatch logs dashboard both use them.
-    const lokiLabels: Partial<Record<ServiceName, string>> = {
+    // Valkey `redis`). The Grafana and CloudWatch logs dashboards both use them.
+    const serviceLabels: Partial<Record<ServiceName, string>> = {
       css: 'simulator',
       ocpiSim: 'ocpi-simulator',
       ocpiCpoSim: 'ocpi-cpo-simulator',
@@ -460,7 +460,7 @@ export class AppStack extends Stack {
       redis: data.valkeySlowLog,
     };
     for (const [name, svc] of Object.entries(this.services) as [ServiceName, AppService][]) {
-      logGroups[lokiLabels[name] ?? name] = svc.logGroup;
+      logGroups[serviceLabels[name] ?? name] = svc.logGroup;
     }
 
     const observability = config.observability.enabled
@@ -487,7 +487,6 @@ export class AppStack extends Stack {
           metrics,
           services: this.services,
           alertTopic,
-          ...(observability != null && { lokiForwarder: observability.lokiForwarder }),
         }).alarms
       : [];
     if (config.monitoring.dashboard) {

@@ -53,7 +53,7 @@ How rotated credentials reach running tasks:
   - Tasks: ingress from the ALB on service and health ports, and from other tasks on internal ports (Cloud Map).
   - Aurora: 5432 from tasks and rotation functions only. Valkey: 6379 from the same.
   - OCPP TLS NLB (optional): the TLS port from anywhere (EXC-006).
-- Grafana, Loki, Prometheus, and the log forwarder use their own security group. Only the app services' group can reach Aurora (5432) and Valkey (6379), so Grafana, which is reachable through the ALB, has no network path to the data stores.
+- Grafana and Prometheus use their own security group. Only the app services' group can reach Aurora (5432) and Valkey (6379), so Grafana, which is reachable through the ALB, has no network path to the data stores.
 - The VPC default security group has every rule removed. VPC flow logs capture all traffic and go to the logs bucket as Parquet under `vpc-flow-logs/`. The bucket's expiration (`storage.logsExpirationDays`) sets their retention.
 - The S3 gateway endpoint keeps bucket traffic off the NAT. Interface endpoints are optional per environment.
 
@@ -97,11 +97,10 @@ How rotated credentials reach running tasks:
 
 ## Observability
 
-- Grafana, Loki, and Prometheus run as their images' non-root users (472, 10001, 65534) with read-only root filesystems. Grafana's provisioner runs as the Grafana user too.
-- Loki and Grafana state lives on an encrypted EFS file system with automatic backups (EFS.1, EFS.2). Each service mounts its own access point, which forces its POSIX user and root directory (EFS.3, EFS.4). Mounts use TLS and IAM authorization.
+- Grafana and Prometheus run as their images' non-root users (472, 65534) with read-only root filesystems. Grafana's provisioner runs as the Grafana user too.
+- Grafana's database lives on an encrypted EFS file system with automatic backups (EFS.1, EFS.2). Grafana mounts its own access point, which forces its POSIX user and root directory (EFS.3, EFS.4). Mounts use TLS and IAM authorization.
 - Grafana is public only for `observability.grafana.allowedCidrs`, behind the ALB (and WAF where enabled), with anonymous access and sign-up disabled.
-- Grafana reads Amazon Managed Service for Prometheus and publishes alerts to SNS through its task role. No AWS keys are stored.
-- Loki has its own bucket, so it cannot modify the Grafana provisioning files.
+- Grafana reads Amazon Managed Service for Prometheus, runs Logs Insights queries on the environment's log groups only, reads CloudWatch metrics (`ListMetrics`, `GetMetricData`, read-only), and publishes alerts to SNS, all through its task role. No AWS keys are stored.
 
 ## Tags
 

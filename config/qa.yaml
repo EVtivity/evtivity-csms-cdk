@@ -91,8 +91,6 @@ observability:
     # internet until you add addresses with scripts/grafana-access.sh. Set
     # office or VPN ranges in config/<env>.local.yaml.
     allowedCidrs: []
-  loki:
-    retentionDays: 30
 services:
   api:
     enabled: true

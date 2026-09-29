@@ -133,6 +133,28 @@ for (const env of ENVS) {
           }
           continue;
         }
+        // Grafana may list log groups, read or stop its own queries, and read
+        // metrics, none of which take a resource. Running queries is scoped separately.
+        if (id.includes('SvcgrafanaTaskTaskRole')) {
+          const grafanaWildcards = new Set([
+            'logs:DescribeLogGroups',
+            'logs:GetQueryResults',
+            'logs:StopQuery',
+            'cloudwatch:ListMetrics',
+            'cloudwatch:GetMetricData',
+          ]);
+          for (const st of doc0.Statement) {
+            if (st.Resource !== '*') continue;
+            for (const action of [st.Action].flat()) {
+              assert.ok(
+                grafanaWildcards.has(action) ||
+                  (config.ecs.executeCommand && execActions.has(action)),
+                `${id} grants ${action} on all resources`,
+              );
+            }
+          }
+          continue;
+        }
         if (!id.includes('TaskRole')) continue;
         const doc = r.Properties?.['PolicyDocument'] as {
           Statement: { Action: string | string[]; Resource: unknown }[];
@@ -161,7 +183,7 @@ for (const env of ENVS) {
       };
       const appSgs = sgsOf('api');
       assert.ok(appSgs.length > 0, 'api security groups found');
-      for (const name of ['grafana', 'loki', 'prometheus']) {
+      for (const name of ['grafana', 'prometheus']) {
         const obs = sgsOf(name);
         assert.ok(obs.length > 0, `${name} security groups found`);
         assert.ok(
@@ -182,7 +204,7 @@ for (const env of ENVS) {
     void it('Stack descriptions: list only what the environment deploys', () => {
       const has = (type: string): boolean => ofType(resources, type).length > 0;
       const desc = (name: string): string => String(templates[name]?.toJSON()['Description'] ?? '');
-      assert.equal(desc('storage').includes('Loki'), config.observability.enabled);
+      assert.equal(desc('storage').includes('Grafana'), config.observability.enabled);
       assert.equal(desc('alb').includes('WAF web ACL'), has('AWS::WAFv2::WebACL'));
       assert.equal(desc('alb').includes('managed rules'), config.waf.enabled);
       assert.equal(
@@ -204,8 +226,8 @@ for (const env of ENVS) {
 
     void it('S3: blocks public access, encrypts, requires TLS, and has lifecycle rules (S3.1/5/8/13)', () => {
       const buckets = ofType(resources, 'AWS::S3::Bucket');
-      // logs and app, plus grafana and loki with observability.
-      assert.equal(buckets.length, config.observability.enabled ? 4 : 2);
+      // logs and app, plus grafana with observability.
+      assert.equal(buckets.length, config.observability.enabled ? 3 : 2);
       for (const b of buckets) {
         assert.deepEqual(b['PublicAccessBlockConfiguration'], {
           BlockPublicAcls: true,
@@ -316,7 +338,6 @@ for (const env of ENVS) {
         grafana: '472:0',
         provision: '472:0',
         prometheus: '65534:65534',
-        loki: '10001:10001',
       };
       for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
         const family = String(td['Family']);
@@ -331,7 +352,7 @@ for (const env of ENVS) {
       }
     });
 
-    void it('Observability: AMP, encrypted EFS with backups, scoped Grafana access, log forwarding', () => {
+    void it('Observability: AMP, encrypted EFS with backups, scoped Grafana access, CloudWatch logs', () => {
       const o = config.observability;
       assert.equal(ofType(resources, 'AWS::APS::Workspace').length, o.enabled ? 1 : 0);
       const fileSystems = ofType(resources, 'AWS::EFS::FileSystem');
@@ -371,9 +392,28 @@ for (const env of ENVS) {
       assert.match(JSON.stringify(grafanaWaf.Statement), /IPSetReferenceStatement/);
       // A port or trailing dot in the Host header must not skip the block.
       assert.match(JSON.stringify(grafanaWaf.Statement), /"PositionalConstraint":"STARTS_WITH"/);
+      // Grafana reads logs from CloudWatch directly. No second log store.
+      assert.equal(ofType(resources, 'AWS::Logs::SubscriptionFilter').length, 0);
+      assert.ok(
+        !ofType(resources, 'AWS::ECS::Service').some((svc) =>
+          String(svc['ServiceName']).endsWith('-loki'),
+        ),
+        'no Loki service',
+      );
+      // Logs Insights access is scoped to this environment's log groups:
+      // every service plus the database job, PostgreSQL, and Valkey.
       const enabledServices = Object.values(config.services).filter((s) => s.enabled).length;
-      // Every service plus the database job, PostgreSQL, and Valkey.
-      assert.equal(ofType(resources, 'AWS::Logs::SubscriptionFilter').length, enabledServices + 3);
+      const grafanaPolicy = Object.entries(resources).find(
+        ([id, r]) => r.Type === 'AWS::IAM::Policy' && id.includes('SvcgrafanaTaskTaskRole'),
+      )?.[1];
+      const statements = (
+        grafanaPolicy?.Properties?.['PolicyDocument'] as {
+          Statement: { Action: string | string[]; Resource: unknown }[];
+        }
+      ).Statement;
+      const startQuery = statements.find((st) => [st.Action].flat().includes('logs:StartQuery'));
+      assert.equal([startQuery?.Resource].flat().length, enabledServices + 3);
+      assert.ok(!JSON.stringify(startQuery?.Resource).includes('"*"'), 'StartQuery is scoped');
     });
 
     void it('ELB: drops invalid headers, logs, redirects HTTP, TLS 1.2+ (ELB.1/4/5/6/13)', () => {

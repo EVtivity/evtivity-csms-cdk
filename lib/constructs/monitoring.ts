@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import {
-  Duration,
   aws_cloudwatch as cw,
   aws_cloudwatch_actions as cwActions,
-  type aws_lambda as lambda,
   type aws_sns as sns,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
@@ -20,8 +18,6 @@ export interface MonitoringProps {
   services: Partial<Record<ServiceName, AppService>>;
   /** Alarm notifications. Shared with Grafana alerting. */
   alertTopic: sns.ITopic;
-  /** The CloudWatch-to-Loki forwarder, when observability is on. */
-  lokiForwarder?: lambda.IFunction;
 }
 
 /** CloudWatch alarms for the environment. The dashboards live in Dashboards. */
@@ -165,15 +161,5 @@ export class Monitoring extends Construct {
         m.fckNat ? 2 : 5,
       );
     });
-
-    if (props.lokiForwarder != null) {
-      alarm(
-        'loki-forwarder',
-        props.lokiForwarder.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
-        10,
-        'Log batches failing to reach Loki: Grafana log panels have gaps',
-        3,
-      );
-    }
   }
 }

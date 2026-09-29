@@ -172,5 +172,3 @@ export function albPorts(name: ServiceName): number[] {
 export const API_METRICS_PORT = 9091;
 /** Grafana HTTP port. */
 export const GRAFANA_PORT = 3000;
-/** Loki HTTP port (push and query). */
-export const LOKI_PORT = 3100;

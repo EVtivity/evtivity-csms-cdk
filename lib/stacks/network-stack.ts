@@ -14,7 +14,6 @@ import type { Construct } from 'constructs';
 import {
   API_METRICS_PORT,
   GRAFANA_PORT,
-  LOKI_PORT,
   SERVICE_CATALOG,
   SERVICE_NAMES,
   albPorts,
@@ -55,7 +54,7 @@ export class NetworkStack extends Stack {
   /** Credential rotation functions: reach Aurora, Valkey, and AWS APIs. */
   readonly rotationSg: ec2.SecurityGroup;
   /**
-   * Grafana, Loki, Prometheus, and the log forwarder. Separate from ecsSg so
+   * Grafana and Prometheus. Separate from ecsSg so
    * that Grafana, which is reachable from the internet through the ALB, has
    * no network path to Aurora or Valkey.
    */
@@ -193,15 +192,13 @@ export class NetworkStack extends Stack {
     if (config.observability.enabled) {
       const obs = new ec2.SecurityGroup(this, 'ObservabilitySg', {
         vpc: this.vpc,
-        description: 'EVtivity observability (Grafana, Loki, Prometheus, log forwarder)',
+        description: 'EVtivity observability (Grafana, Prometheus)',
         // Amazon Managed Prometheus, S3, SNS, and image registries.
         allowAllOutbound: true,
       });
       this.observabilitySg = obs;
       this.albSg.addEgressRule(obs, ec2.Port.tcp(GRAFANA_PORT), 'ALB to Grafana');
       obs.addIngressRule(this.albSg, ec2.Port.tcp(GRAFANA_PORT), 'ALB to Grafana');
-      // Log forwarder pushes and Grafana queries.
-      obs.addIngressRule(obs, ec2.Port.tcp(LOKI_PORT), 'Loki from observability');
       // Prometheus scrapes the API metrics port.
       this.ecsSg.addIngressRule(obs, ec2.Port.tcp(API_METRICS_PORT), 'Prometheus scrape');
     }
