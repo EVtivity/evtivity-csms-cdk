@@ -85,6 +85,22 @@ for (const env of ENVS) {
   void describe(`${env} environment`, () => {
     const { config, resources, templates } = synth(env);
 
+    void it('Simulator: security profile 2 targets a listener that exists', () => {
+      const css = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .find((c) => (c.Environment ?? []).some((e) => e.Name === 'CSS_MODE'));
+      if (css == null) return;
+      const env = (css.Environment ?? []) as { Name: string; Value?: unknown }[];
+      const url = env.find((e) => e.Name === 'OCPP_TLS_SERVER_URL')?.Value;
+      assert.equal(typeof url, 'string', 'OCPP_TLS_SERVER_URL is set');
+      if (config.ocppTls.enabled) {
+        assert.match(url as string, new RegExp(`:${String(config.ocppTls.port)}$`));
+      } else {
+        // No TLS listener on the OCPP task, so TLS goes through the load balancer.
+        assert.match(url as string, /^wss:\/\/[^:]+$/);
+      }
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

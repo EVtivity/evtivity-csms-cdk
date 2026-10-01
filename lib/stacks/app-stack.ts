@@ -272,7 +272,10 @@ export class AppStack extends Stack {
         case 'css':
           Object.assign(environment, {
             OCPP_SERVER_URL: ocppUrl,
-            OCPP_TLS_SERVER_URL: ocppTlsUrl,
+            // Without the OCPP TLS listener, security profile 2 runs through the
+            // load balancer, so simulated 1.6 stations move to its wss address.
+            OCPP_TLS_SERVER_URL:
+              config.ocppTls.enabled || urls.ocpp === '' ? ocppTlsUrl : urls.ocpp,
             CSS_MODE: 'standby',
             CSS_HEALTH_PORT: '8082',
           });
