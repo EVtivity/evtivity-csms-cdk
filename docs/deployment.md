@@ -67,19 +67,22 @@ Validation is strict. A misspelled key (for example `waf.enable`) fails the synt
 
 Common changes:
 
-| Change                           | Config                                                            |
-| -------------------------------- | ----------------------------------------------------------------- |
-| Release a new version            | `image.tag` (the CSMS release workflow updates it)                |
-| Pin one service to another image | `services.<name>.imageTag`                                        |
-| Turn a service off               | `services.<name>.enabled: false` (dependencies are validated)     |
-| Size a service                   | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling` |
-| Cheaper, interruptible compute   | `services.<name>.capacity: FARGATE_SPOT`                          |
-| Aurora capacity                  | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`            |
-| Valkey size and HA               | `valkey.nodeType`, `valkey.replicas`                              |
-| NAT                              | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count`          |
-| WAF                              | `waf.enabled`, `waf.rateLimitPer5Min`, `waf.countRules`           |
-| Rotation                         | `rotation.*Days`, `ecs.redeployEveryDays` (must be shorter)       |
-| Settings table values            | `appSettings` (non-secret keys only)                              |
+| Change                                              | Config                                                                      |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| Release a new version                               | `image.tag` (the CSMS release workflow updates it)                          |
+| Pin one service to another image                    | `services.<name>.imageTag`                                                  |
+| Turn a service off                                  | `services.<name>.enabled: false` (dependencies are validated)               |
+| Size a service                                      | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling`           |
+| Cheaper, interruptible compute                      | `services.<name>.capacity: FARGATE_SPOT`                                    |
+| Aurora capacity                                     | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`                      |
+| Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`                                        |
+| NAT                                                 | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count`                    |
+| WAF (rules in [security.md](security.md#waf-rules)) | `waf.enabled`, `waf.rateLimitPer5Min`, `waf.countRules`                     |
+| Countries allowed through WAF                       | `waf.allowCountries` (default `[US]`, `[]` turns it off)                    |
+| WAF rate limits (per IP, 5 min)                     | `waf.ocppRateLimitPer5Min`, `authRateLimitPer5Min`, `guestRateLimitPer5Min` |
+| Stripe webhook addresses                            | `waf.stripeWebhookIps` (seed only, see `scripts/stripe-webhook-ips.sh`)     |
+| Rotation                                            | `rotation.*Days`, `ecs.redeployEveryDays` (must be shorter)                 |
+| Settings table values                               | `appSettings` (non-secret keys only)                                        |
 
 Aurora readers are pinned to the availability zones after the first (`vpc.availabilityZones`), so an AZ outage leaves a reader running. The writer is never pinned, because setting its AZ would replace it. Pinning a reader that already exists in another AZ replaces that reader once, with no writer failover.
 

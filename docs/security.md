@@ -69,7 +69,72 @@ How rotated credentials reach running tasks:
 
 - ALB drops invalid header fields, uses defensive desync mitigation, and writes access logs to the logs bucket.
 - Deletion protection is on in prod.
-- Every environment with observability gets a web ACL that limits Grafana to the allowlist. In qa and prod (`waf.enabled`) it also runs the AWS managed IP reputation, common, known bad inputs, and SQL injection rule groups, a per-IP rate limit, and an optional country block. `NoUserAgent_HEADER` and `SizeRestrictions_BODY` run in count mode because charging stations often omit a User-Agent and bulk imports exceed 8 KB. WAF logs go to CloudWatch with the `authorization` and `cookie` headers redacted.
+- Every environment with observability gets a web ACL that limits Grafana to its allowlist. In qa and prod (`waf.enabled`) the same web ACL runs the rules in [WAF rules](#waf-rules).
+- WAF logs go to CloudWatch (`aws-waf-logs-evtivity-<env>`) with the `authorization` and `cookie` headers redacted.
+
+## WAF rules
+
+The web ACL is attached to the public ALB and covers every host on it (api, ocpp, ocpi, csms, portal, grafana). It does not cover the OCPP TLS network load balancer, which passes TLS straight to the OCPP service. Rules run in priority order. The first `Allow` or `Block` ends evaluation. Requests that match nothing are allowed.
+
+| Priority | Rule                   | Action       | What it does                                                                                                           |
+| -------- | ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| 1        | `GrafanaAllowList`     | Block        | Blocks the Grafana host for addresses outside the Grafana IP set. Present whenever observability is on, including dev. |
+| 2        | `StripeWebhookAllow`   | Allow        | Lets requests to `/v1/webhooks/stripe` from Stripe's webhook addresses skip every later rule.                          |
+| 3        | `OcppWebSocketOnly`    | Block        | Blocks requests to the OCPP host without an `Upgrade: websocket` header. Stations only open WebSockets.                |
+| 4        | `StaticSiteMethods`    | Block        | Blocks methods other than GET and HEAD on the csms and portal hosts. Both are static sites with no API behind them.    |
+| 5        | `GeoAllow`             | Block        | Blocks countries outside `waf.allowCountries` (default `[US]`). The OCPP host is exempt.                               |
+| 10       | IP reputation list     | Block        | AWS list of addresses tied to bots, scanning, and malware. The OCPP host is exempt.                                    |
+| 15       | Anonymous IP list      | Block, count | Blocks VPNs and Tor. Hosting provider addresses only count. The OCPP host is exempt.                                   |
+| 20       | Core rule set          | Block, count | OWASP-style protections: cross-site scripting, path traversal, SSRF to instance metadata, oversized requests.          |
+| 30       | Known bad inputs       | Block        | Exploit patterns such as Log4j and Java deserialization.                                                               |
+| 40       | SQL database           | Block        | SQL injection in the query string, body, cookies, and URI path.                                                        |
+| 50       | Linux operating system | Block        | Local file inclusion of Linux paths such as `/etc/passwd` and `/proc/self/environ`.                                    |
+| 100      | `RateLimitPerIp`       | Block        | More than `waf.rateLimitPer5Min` (2000) requests per IP in 5 minutes, on every host except OCPP.                       |
+| 101      | `OcppRateLimitPerIp`   | Block        | More than `waf.ocppRateLimitPer5Min` (20000) OCPP connection attempts per IP in 5 minutes.                             |
+| 102      | `AuthRateLimitPerIp`   | Block        | More than `waf.authRateLimitPer5Min` (50) POSTs per IP in 5 minutes to `/v1/auth/*` and `/v1/portal/auth/*`.           |
+| 103      | `GuestRateLimitPerIp`  | Block        | More than `waf.guestRateLimitPer5Min` (100) POSTs per IP in 5 minutes to `/v1/portal/guest/*`.                         |
+
+Rules 10 through 50 are AWS managed rule groups with no subscription fee. Rules that name a host or path only exist when that service is enabled.
+
+### Why the rules look like this
+
+- **Count-mode rules.** In the core rule set, `NoUserAgent_HEADER` and `SizeRestrictions_BODY` count instead of block (`waf.countRules`). Charging stations often send no User-Agent, and site and token imports exceed 8 KB. In the anonymous IP list, `HostingProviderIPList` counts because Stripe, OCPI partners, and IoT SIM gateways run on cloud providers.
+- **Charging stations.** Stations on cellular networks often share one public address through carrier NAT, and roaming IoT SIMs can exit in another country. Blocking one address could take a whole fleet offline, and a mass reconnect after an outage would trip the global rate limit. So the OCPP host skips the country, IP reputation, anonymous IP, and global rate rules, and gets a separate, higher limit. A WebSocket counts as one request when it opens. Messages inside it do not count. Station authentication in the OCPP service is the gate.
+- **Stripe webhooks.** Stripe sends webhooks from addresses in the US, Germany, and India, so the country rule would block some of them. Content rules could also block a payload that happens to contain an attack pattern. The allow rule matches only the webhook path and only Stripe's published addresses. The API still verifies the `Stripe-Signature` header.
+- **Auth and guest limits.** The API's own per-IP limits see the load balancer's address, not the client's, so these WAF limits are the only per-client limits on sign-in and guest charging. They count POSTs only. Token refresh and logout are excluded because every signed-in session calls them. Guest status polling uses GET and is excluded.
+- **Paths.** Path matches URL-decode and normalize the path first, so `/v1//auth/login` or `%2F` cannot dodge a rule. Host matches use `STARTS_WITH` so a port or trailing dot in the Host header still matches.
+
+### Limits
+
+- On an ALB the WAF inspects only the first 8 KB of a request body, and the limit cannot be raised. Content in larger bodies, such as bulk imports, is not checked. Parameterized queries in the application are the primary SQL injection defense.
+- The web ACL uses 1,480 of the 1,500 capacity units (WCU) included in the base price, measured with the WAF `CheckCapacity` API. Adding another managed rule group exceeds that and adds cost.
+- Clients that share an address, such as an office or a mobile carrier's NAT, share every per-IP limit.
+- Grafana users must also be in an allowed country.
+- OCPI partners outside the allowed countries are blocked. Add their countries to `waf.allowCountries`.
+- Not enabled: Bot Control, account takeover prevention, account creation fraud prevention, and the anti-DDoS rule group (all paid per request), and the admin protection group (the whole CSMS is an admin app). AWS Shield Standard protects the ALB from network-layer floods at no charge.
+
+### Operating the WAF
+
+Stripe publishes its webhook addresses at <https://stripe.com/files/ips/ips_webhooks.json> and announces changes seven days ahead on its [API announce list](https://groups.google.com/a/lists.stripe.com/g/api-announce). Sync the IP set without a deploy:
+
+```bash
+AWS_PROFILE=<name> ./scripts/stripe-webhook-ips.sh prod diff   # compare with Stripe's list
+AWS_PROFILE=<name> ./scripts/stripe-webhook-ips.sh prod sync   # replace the set with Stripe's list
+AWS_PROFILE=<name> ./scripts/stripe-webhook-ips.sh prod list
+```
+
+`waf.stripeWebhookIps` only seeds the set. Changing it replaces the set's contents on the next deploy, so update it after a sync.
+
+To see what the WAF blocked, query the WAF log group in CloudWatch Logs Insights:
+
+```
+fields @timestamp, httpRequest.clientIp, httpRequest.country, httpRequest.host, httpRequest.uri, terminatingRuleId
+| filter action = "BLOCK"
+| sort @timestamp desc
+| limit 100
+```
+
+Each rule also publishes CloudWatch metrics (`AWS/WAFV2`, one metric name per rule) with sampled requests in the WAF console.
 
 ## FSBP controls asserted by the tests
 

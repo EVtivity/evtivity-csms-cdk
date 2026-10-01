@@ -15,6 +15,7 @@ import { Template } from 'aws-cdk-lib/assertions';
 import { buildApp } from '../lib/build-app.js';
 import type { Config, EnvName } from '../lib/config/schema.js';
 import { loadConfig } from '../lib/config/load.js';
+import { serviceHost } from '../lib/util.js';
 
 type Resources = Record<string, { Type: string; Properties?: Record<string, unknown> }>;
 
@@ -199,6 +200,112 @@ for (const env of ENVS) {
           assert.ok(!obs.some((g) => source.includes(g.replace(/"/g, ''))), `${id} admits ${name}`);
         }
       }
+    });
+
+    void it('WAF: protection rules match the services and config', () => {
+      const [acl] = ofType(resources, 'AWS::WAFv2::WebACL');
+      type Rule = {
+        Name: string;
+        Priority: number;
+        Action?: Record<string, unknown>;
+        Statement: Record<string, unknown>;
+      };
+      const rules = (acl?.['Rules'] ?? []) as Rule[];
+      const byName = (name: string): Rule | undefined => rules.find((r) => r.Name === name);
+      const text = (r: Rule | undefined): string => JSON.stringify(r?.Statement ?? {});
+      const w = config.waf;
+      const priorities = rules.map((r) => r.Priority);
+      assert.equal(new Set(priorities).size, priorities.length, 'unique rule priorities');
+      if (!w.enabled) {
+        assert.ok(
+          rules.every((r) => r.Name === 'GrafanaAllowList'),
+          'only Grafana without WAF',
+        );
+        return;
+      }
+      const ocpp = config.services.ocpp.enabled ? serviceHost(config, 'ocpp') : undefined;
+      const api = config.services.api.enabled ? serviceHost(config, 'api') : undefined;
+
+      for (const group of [
+        'AmazonIpReputationList',
+        'AnonymousIpList',
+        'CommonRuleSet',
+        'KnownBadInputsRuleSet',
+        'SQLiRuleSet',
+        'LinuxRuleSet',
+      ]) {
+        assert.ok(byName(`AWS-AWSManagedRules${group}`), `${group} is attached`);
+      }
+      // Hosting providers only count: Stripe, OCPI partners, and IoT SIM
+      // gateways run there.
+      assert.match(
+        text(byName('AWS-AWSManagedRulesAnonymousIpList')),
+        /\{"ActionToUse":\{"Count":\{\}\},"Name":"HostingProviderIPList"\}/,
+      );
+
+      // Stripe: allowed only on the webhook path and only from the IP set.
+      const stripe = byName('StripeWebhookAllow');
+      assert.equal(Boolean(stripe), api != null && w.stripeWebhookIps.length > 0);
+      if (stripe) {
+        assert.deepEqual(stripe.Action, { Allow: {} });
+        assert.match(
+          text(stripe),
+          /"PositionalConstraint":"EXACTLY","SearchString":"\/v1\/webhooks\/stripe"/,
+        );
+        assert.match(text(stripe), /IPSetReferenceStatement/);
+        const geoRule = byName('GeoAllow');
+        if (geoRule) assert.ok(stripe.Priority < geoRule.Priority, 'Stripe before country rule');
+        const set = ofType(resources, 'AWS::WAFv2::IPSet').find((s) =>
+          String(s['Name']).endsWith('-stripe-webhooks'),
+        );
+        assert.deepEqual(set?.['Addresses'], w.stripeWebhookIps);
+      }
+
+      // Stations behind carrier NAT or roaming SIMs: the OCPP host skips every
+      // address-based rule and has its own rate limit.
+      const geo = byName('GeoAllow');
+      assert.equal(Boolean(geo), w.allowCountries.length > 0);
+      if (geo) assert.ok(text(geo).includes(`"CountryCodes":${JSON.stringify(w.allowCountries)}`));
+      if (ocpp) {
+        for (const name of [
+          'GeoAllow',
+          'AWS-AWSManagedRulesAmazonIpReputationList',
+          'AWS-AWSManagedRulesAnonymousIpList',
+          'RateLimitPerIp',
+        ]) {
+          const r = byName(name);
+          if (!r) continue;
+          assert.ok(
+            text(r).includes(
+              `{"NotStatement":{"Statement":{"ByteMatchStatement":{"FieldToMatch":{"SingleHeader":{"Name":"host"}},"PositionalConstraint":"STARTS_WITH","SearchString":"${ocpp}"`,
+            ),
+            `${name} exempts the OCPP host`,
+          );
+        }
+        assert.match(text(byName('OcppWebSocketOnly')), /"Name":"upgrade"/);
+        assert.match(
+          text(byName('OcppRateLimitPerIp')),
+          new RegExp(`"Limit":${String(w.ocppRateLimitPer5Min)}`),
+        );
+      }
+
+      // Path limits count POSTs only, and never token refresh or logout.
+      if (api) {
+        const auth = text(byName('AuthRateLimitPerIp'));
+        assert.match(auth, new RegExp(`"Limit":${String(w.authRateLimitPer5Min)}`));
+        for (const s of ['/v1/auth/', '/v1/portal/auth/', '/refresh', '/logout', 'POST']) {
+          assert.ok(auth.includes(`"SearchString":"${s}"`), `auth limit mentions ${s}`);
+        }
+        const guest = text(byName('GuestRateLimitPerIp'));
+        assert.match(guest, new RegExp(`"Limit":${String(w.guestRateLimitPer5Min)}`));
+        assert.ok(guest.includes('"SearchString":"/v1/portal/guest/"'));
+        assert.ok(guest.includes('"SearchString":"POST"'));
+      }
+      const statics = byName('StaticSiteMethods');
+      assert.equal(
+        Boolean(statics),
+        config.services.csms.enabled || config.services.portal.enabled,
+      );
     });
 
     void it('Stack descriptions: list only what the environment deploys', () => {

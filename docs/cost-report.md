@@ -7,8 +7,8 @@ Monthly estimates for the committed `dev`, `qa`, and `prod` configs in us-east-1
 | Environment | Monthly estimate | Main drivers                                                                                             |
 | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
 | dev         | $127 to $191     | Aurora (36 to 49%), ALB with IPv4 (24%), Fargate Spot (10 to 15%)                                        |
-| qa          | $195 to $262     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
-| prod        | $598 to $960     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
+| qa          | $203 to $271     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
+| prod        | $607 to $969     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
 
 Totals include observability (Prometheus and Grafana), which every environment enables. It adds $5 to $11 in dev (Fargate Spot) and $15 to $21 in qa and prod. The per-environment tables below list the platform without it.
 
@@ -65,13 +65,13 @@ Optional add-ons:
 | ALB (hours plus 1 LCU)                           | $22.27           |
 | ALB public IPv4 x 2                              | $7.30            |
 | fck-nat                                          | $7.04            |
-| WAF (1 ACL, 5 rules, under 5 million requests)   | $11 to $13       |
+| WAF (1 ACL, 14 rules, under 5 million requests)  | $19 to $22       |
 | Secrets Manager x 6                              | $2.40            |
 | Container Insights (about 55 metrics)            | $8.25 to $16.50  |
 | CloudWatch alarms (about 22) and dashboard       | $5.20            |
 | CloudWatch Logs (3 to 10 GB)                     | $2 to $5         |
 | Cloud Map, Lambda, S3, other                     | $1 to $3         |
-| **Total**                                        | **$180 to $241** |
+| **Total**                                        | **$188 to $250** |
 
 ## prod
 
@@ -85,13 +85,13 @@ Optional add-ons:
 | ALB public IPv4 x 2                                                       | $7.30              |
 | NAT gateway x 2, 50 to 200 GB processed                                   | $67.95 to $74.70   |
 | NAT gateway public IPv4 x 2                                               | $7.30              |
-| WAF (1 ACL, 5 rules, 5 to 20 million requests)                            | $13 to $22         |
+| WAF (1 ACL, 14 rules, 5 to 20 million requests)                           | $22 to $31         |
 | Secrets Manager x 6                                                       | $2.40              |
 | Container Insights (about 60 metrics)                                     | $9 to $18          |
 | CloudWatch alarms (about 24) and dashboard                                | $5.40              |
 | CloudWatch Logs (10 to 40 GB ingest, 365-day retention)                   | $8 to $30          |
 | Cloud Map, Lambda, S3, data transfer, other                               | $5 to $20          |
-| **Total**                                                                 | **$583 to $939**   |
+| **Total**                                                                 | **$592 to $948**   |
 
 ## Observability (per environment)
 

@@ -67,6 +67,11 @@ alb:
 waf:
   enabled: true
   rateLimitPer5Min: 2000
+  # Per IP per 5 minutes. See docs/security.md#waf-rules.
+  ocppRateLimitPer5Min: 20000
+  authRateLimitPer5Min: 50
+  guestRateLimitPer5Min: 100
+  allowCountries: [US]
   logRetentionDays: 30
 ocpi:
   countryCode: US

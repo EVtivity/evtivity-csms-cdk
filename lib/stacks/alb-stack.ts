@@ -16,7 +16,8 @@ import {
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { Config } from '../config/index.js';
-import { grafanaHost, namePrefix, removalPolicyOf } from '../util.js';
+import type { ServiceName } from '../catalog.js';
+import { grafanaHost, namePrefix, removalPolicyOf, serviceHost } from '../util.js';
 
 export interface AlbStackProps extends StackProps {
   config: Config;
@@ -26,17 +27,113 @@ export interface AlbStackProps extends StackProps {
   logsBucket: s3.IBucket;
 }
 
+type Statement = wafv2.CfnWebACL.StatementProperty;
+type Rule = wafv2.CfnWebACL.RuleProperty;
+
+const visibility = (metricName: string): wafv2.CfnWebACL.VisibilityConfigProperty => ({
+  cloudWatchMetricsEnabled: true,
+  metricName,
+  sampledRequestsEnabled: true,
+});
+
+const not = (statement: Statement): Statement => ({ notStatement: { statement } });
+
+// WAF requires two or more statements in an AND or OR, so one passes through.
+const all = (statements: Statement[]): Statement => {
+  const [only] = statements;
+  return statements.length === 1 && only ? only : { andStatement: { statements } };
+};
+
+const any = (statements: Statement[]): Statement => {
+  const [only] = statements;
+  return statements.length === 1 && only ? only : { orStatement: { statements } };
+};
+
+// STARTS_WITH, not EXACTLY: "<host>:443" and a trailing-dot host still route
+// to the service, so they must match too. Extra hosts that begin the same way
+// have no listener rule and get the 404 default.
+const hostIs = (host: string): Statement => ({
+  byteMatchStatement: {
+    fieldToMatch: { singleHeader: { Name: 'host' } },
+    positionalConstraint: 'STARTS_WITH',
+    searchString: host,
+    textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
+  },
+});
+
+const methodIs = (method: string): Statement => ({
+  byteMatchStatement: {
+    fieldToMatch: { method: {} },
+    positionalConstraint: 'EXACTLY',
+    searchString: method,
+    textTransformations: [{ priority: 0, type: 'NONE' }],
+  },
+});
+
+// Decoded and normalized so "/v1//auth/login" or "%2F" cannot dodge a match.
+const path = (
+  positionalConstraint: 'EXACTLY' | 'STARTS_WITH' | 'ENDS_WITH',
+  searchString: string,
+): Statement => ({
+  byteMatchStatement: {
+    fieldToMatch: { uriPath: {} },
+    positionalConstraint,
+    searchString,
+    textTransformations: [
+      { priority: 0, type: 'URL_DECODE' },
+      { priority: 1, type: 'NORMALIZE_PATH' },
+    ],
+  },
+});
+
+const managed = (
+  name: string,
+  priority: number,
+  options: { countRules?: string[]; scopeDown?: Statement } = {},
+): Rule => {
+  const countRules = options.countRules ?? [];
+  return {
+    name: `AWS-${name}`,
+    priority,
+    overrideAction: { none: {} },
+    statement: {
+      managedRuleGroupStatement: {
+        vendorName: 'AWS',
+        name,
+        ...(countRules.length > 0 && {
+          ruleActionOverrides: countRules.map((r) => ({ name: r, actionToUse: { count: {} } })),
+        }),
+        ...(options.scopeDown && { scopeDownStatement: options.scopeDown }),
+      },
+    },
+    visibilityConfig: visibility(name),
+  };
+};
+
+const rateLimit = (name: string, priority: number, limit: number, scopeDown?: Statement): Rule => ({
+  name,
+  priority,
+  action: { block: {} },
+  statement: {
+    rateBasedStatement: {
+      limit,
+      aggregateKeyType: 'IP',
+      ...(scopeDown && { scopeDownStatement: scopeDown }),
+    },
+  },
+  visibilityConfig: visibility(name),
+});
+
 /**
  * Public ALB with an HTTP-to-HTTPS redirect, a TLS 1.2+ HTTPS listener, and a
- * WAF web ACL. The ACL carries the AWS managed rule groups when `waf.enabled`,
- * and the Grafana allowlist rule when observability is enabled. Services
- * attach host-header rules in the app stack.
+ * WAF web ACL. The ACL carries the Grafana allowlist rule when observability
+ * is enabled and the protection rules when `waf.enabled`. Services attach
+ * host-header rules in the app stack.
  */
 export class AlbStack extends Stack {
   readonly alb: elbv2.ApplicationLoadBalancer;
   readonly httpsListener: elbv2.ApplicationListener;
   readonly httpListener: elbv2.ApplicationListener;
-  /** WAF IP set that may reach Grafana. Edited at run time by scripts/grafana-access.sh. */
 
   constructor(scope: Construct, id: string, props: AlbStackProps) {
     super(scope, id, props);
@@ -90,34 +187,9 @@ export class AlbStack extends Stack {
     new CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
   }
 
-  /** Creates the web ACL and returns the Grafana allowlist when there is one. */
+  /** Creates the web ACL, its logging, and the Grafana allowlist when there is one. */
   private addWebAcl(config: Config, prefix: string): void {
-    const visibility = (metricName: string): wafv2.CfnWebACL.VisibilityConfigProperty => ({
-      cloudWatchMetricsEnabled: true,
-      metricName,
-      sampledRequestsEnabled: true,
-    });
-    const managed = (
-      name: string,
-      priority: number,
-      countRules: string[] = [],
-    ): wafv2.CfnWebACL.RuleProperty => ({
-      name: `AWS-${name}`,
-      priority,
-      overrideAction: { none: {} },
-      statement: {
-        managedRuleGroupStatement: {
-          vendorName: 'AWS',
-          name,
-          ...(countRules.length > 0 && {
-            ruleActionOverrides: countRules.map((r) => ({ name: r, actionToUse: { count: {} } })),
-          }),
-        },
-      },
-      visibilityConfig: visibility(name),
-    });
-
-    const rules: wafv2.CfnWebACL.RuleProperty[] = [];
+    const rules: Rule[] = [];
 
     if (config.observability.enabled) {
       // Grafana answers only to addresses in this IP set. The config list
@@ -135,61 +207,18 @@ export class AlbStack extends Stack {
         name: 'GrafanaAllowList',
         priority: 1,
         action: { block: {} },
-        statement: {
-          andStatement: {
-            statements: [
-              {
-                byteMatchStatement: {
-                  fieldToMatch: { singleHeader: { Name: 'host' } },
-                  // STARTS_WITH, not EXACTLY: "grafana.<zone>:443" and a
-                  // trailing-dot host still route to Grafana, so they must
-                  // be blocked too. Blocking extra hosts that begin the same
-                  // way is harmless.
-                  positionalConstraint: 'STARTS_WITH',
-                  searchString: grafanaHost(config),
-                  textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
-                },
-              },
-              {
-                notStatement: {
-                  statement: { ipSetReferenceStatement: { arn: allowList.attrArn } },
-                },
-              },
-            ],
-          },
-        },
+        statement: all([
+          hostIs(grafanaHost(config)),
+          not({ ipSetReferenceStatement: { arn: allowList.attrArn } }),
+        ]),
         visibilityConfig: visibility('GrafanaAllowList'),
       });
       new CfnOutput(this, 'GrafanaAllowListName', { value: allowList.name ?? '' });
     }
 
     if (config.waf.enabled) {
-      rules.push(
-        managed('AWSManagedRulesAmazonIpReputationList', 10),
-        managed('AWSManagedRulesCommonRuleSet', 20, config.waf.countRules),
-        managed('AWSManagedRulesKnownBadInputsRuleSet', 30),
-        managed('AWSManagedRulesSQLiRuleSet', 40),
-        {
-          name: 'RateLimitPerIp',
-          priority: 100,
-          action: { block: {} },
-          statement: {
-            rateBasedStatement: { limit: config.waf.rateLimitPer5Min, aggregateKeyType: 'IP' },
-          },
-          visibilityConfig: visibility('RateLimitPerIp'),
-        },
-      );
+      this.addProtectionRules(config, prefix, rules);
     }
-    if (config.waf.enabled && config.waf.blockCountries.length > 0) {
-      rules.push({
-        name: 'GeoBlock',
-        priority: 110,
-        action: { block: {} },
-        statement: { geoMatchStatement: { countryCodes: config.waf.blockCountries } },
-        visibilityConfig: visibility('GeoBlock'),
-      });
-    }
-
     const webAcl = new wafv2.CfnWebACL(this, 'WebAcl', {
       name: prefix,
       defaultAction: { allow: {} },
@@ -224,5 +253,144 @@ export class AlbStack extends Stack {
         { singleHeader: { Name: 'cookie' } },
       ],
     });
+  }
+
+  /**
+   * Rules added when `waf.enabled`. docs/security.md#waf-rules lists them in
+   * priority order with the reasons.
+   *
+   * Charging stations on cellular networks often share one public address
+   * through carrier NAT, and roaming IoT SIMs can exit in another country. So
+   * the OCPP host skips the country, IP reputation, anonymous IP, and global
+   * rate rules, and gets its own higher rate limit. Station authentication in
+   * the OCPP service remains the gate.
+   */
+  private addProtectionRules(config: Config, prefix: string, rules: Rule[]): void {
+    const enabledHost = (name: ServiceName): string | undefined =>
+      config.services[name].enabled ? serviceHost(config, name) : undefined;
+    const apiHost = enabledHost('api');
+    const ocppHost = enabledHost('ocpp');
+    const staticHosts = [enabledHost('csms'), enabledHost('portal')].filter(
+      (h): h is string => h != null,
+    );
+    // Exempts the OCPP host from address-based rules. Undefined when OCPP is off.
+    const notOcpp = ocppHost == null ? undefined : not(hostIs(ocppHost));
+
+    const stripeIps = config.waf.stripeWebhookIps;
+    if (apiHost != null && stripeIps.length > 0) {
+      // Stripe's published webhook addresses include Germany and India, so the
+      // country rule would block them. The config list seeds the set. After
+      // that, scripts/stripe-webhook-ips.sh syncs it from Stripe without a
+      // deploy. The API still verifies the Stripe-Signature header.
+      const stripeSet = new wafv2.CfnIPSet(this, 'StripeWebhookIps', {
+        name: `${prefix}-stripe-webhooks`,
+        description: `Stripe webhook source addresses for ${config.env}`,
+        scope: 'REGIONAL',
+        ipAddressVersion: 'IPV4',
+        addresses: stripeIps,
+      });
+      rules.push({
+        name: 'StripeWebhookAllow',
+        priority: 2,
+        action: { allow: {} },
+        statement: all([
+          hostIs(apiHost),
+          path('EXACTLY', '/v1/webhooks/stripe'),
+          { ipSetReferenceStatement: { arn: stripeSet.attrArn } },
+        ]),
+        visibilityConfig: visibility('StripeWebhookAllow'),
+      });
+      new CfnOutput(this, 'StripeWebhookIpSetName', { value: stripeSet.name ?? '' });
+    }
+
+    if (ocppHost != null) {
+      // The OCPP port serves only WebSocket upgrades. Health checks use a
+      // separate port and do not pass through the WAF.
+      rules.push({
+        name: 'OcppWebSocketOnly',
+        priority: 3,
+        action: { block: {} },
+        statement: all([
+          hostIs(ocppHost),
+          not({
+            byteMatchStatement: {
+              fieldToMatch: { singleHeader: { Name: 'upgrade' } },
+              positionalConstraint: 'CONTAINS',
+              searchString: 'websocket',
+              textTransformations: [{ priority: 0, type: 'LOWERCASE' }],
+            },
+          }),
+        ]),
+        visibilityConfig: visibility('OcppWebSocketOnly'),
+      });
+    }
+
+    if (staticHosts.length > 0) {
+      // Static nginx sites with no API proxy. Other methods are probes.
+      rules.push({
+        name: 'StaticSiteMethods',
+        priority: 4,
+        action: { block: {} },
+        statement: all([
+          any(staticHosts.map(hostIs)),
+          not(any([methodIs('GET'), methodIs('HEAD')])),
+        ]),
+        visibilityConfig: visibility('StaticSiteMethods'),
+      });
+    }
+
+    if (config.waf.allowCountries.length > 0) {
+      const outside = not({ geoMatchStatement: { countryCodes: config.waf.allowCountries } });
+      rules.push({
+        name: 'GeoAllow',
+        priority: 5,
+        action: { block: {} },
+        statement: notOcpp ? all([outside, notOcpp]) : outside,
+        visibilityConfig: visibility('GeoAllow'),
+      });
+    }
+
+    rules.push(
+      managed('AWSManagedRulesAmazonIpReputationList', 10, { scopeDown: notOcpp }),
+      // Cloud-hosted callers (Stripe, OCPI partners, IoT SIM gateways) come
+      // from hosting providers, so that list only counts.
+      managed('AWSManagedRulesAnonymousIpList', 15, {
+        countRules: ['HostingProviderIPList'],
+        scopeDown: notOcpp,
+      }),
+      managed('AWSManagedRulesCommonRuleSet', 20, { countRules: config.waf.countRules }),
+      managed('AWSManagedRulesKnownBadInputsRuleSet', 30),
+      managed('AWSManagedRulesSQLiRuleSet', 40),
+      managed('AWSManagedRulesLinuxRuleSet', 50),
+      rateLimit('RateLimitPerIp', 100, config.waf.rateLimitPer5Min, notOcpp),
+    );
+    if (ocppHost != null) {
+      rules.push(
+        rateLimit('OcppRateLimitPerIp', 101, config.waf.ocppRateLimitPer5Min, hostIs(ocppHost)),
+      );
+    }
+    if (apiHost != null) {
+      // POST only: token refresh and logout are excluded because every signed
+      // in session calls them, and GET status polling is excluded for guests.
+      rules.push(
+        rateLimit(
+          'AuthRateLimitPerIp',
+          102,
+          config.waf.authRateLimitPer5Min,
+          all([
+            hostIs(apiHost),
+            methodIs('POST'),
+            any([path('STARTS_WITH', '/v1/auth/'), path('STARTS_WITH', '/v1/portal/auth/')]),
+            not(any([path('ENDS_WITH', '/refresh'), path('ENDS_WITH', '/logout')])),
+          ]),
+        ),
+        rateLimit(
+          'GuestRateLimitPerIp',
+          103,
+          config.waf.guestRateLimitPer5Min,
+          all([hostIs(apiHost), methodIs('POST'), path('STARTS_WITH', '/v1/portal/guest/')]),
+        ),
+      );
+    }
   }
 }

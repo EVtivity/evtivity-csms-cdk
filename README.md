@@ -23,7 +23,7 @@ Deploy [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms), the open char
 - **One load balancer for every service**, routed by hostname, with TLS certificates issued and renewed for you. An optional network load balancer passes OCPP security profile 3 (mutual TLS) straight to the OCPP server.
 - **Automatic credential rotation** for the database and cache users, with no downtime.
 - **Observability:** Prometheus and Grafana with the Helm chart's dashboards and alert rules, reading logs straight from CloudWatch. Alerts go to an SNS topic you can subscribe to.
-- **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall with managed rules in qa and prod, and automated checks against the AWS Foundational Security Best Practices on every build.
+- **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall in qa and prod with AWS managed rules (SQL injection, common exploits, IP reputation), a country allowlist (US by default), and per-IP rate limits on sign-in and guest charging, and automated checks against the AWS Foundational Security Best Practices on every build.
 - **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, Spot capacity, a database that pauses when idle) and a highly available production layout.
 
 ## Environments
@@ -168,6 +168,14 @@ Shell sessions keep the read-only filesystem, so only `/tmp` is writable, and ev
 
 Grafana's EVtivity folder has dashboards for system metrics, business metrics, logs, and alerts.
 
+### WAF
+
+qa and prod run the web application firewall. [docs/security.md](docs/security.md#waf-rules) lists every rule and why it exists. Stripe webhooks pass through an IP set that must follow Stripe's published addresses:
+
+```bash
+AWS_PROFILE=<name> ./scripts/stripe-webhook-ips.sh prod diff   # also: sync, list
+```
+
 ### Pause or remove an environment
 
 - **Pause:** set `desiredCount: 0` on every service (with autoscaling, set `autoscaling.min` to 0 as well) and deploy. Compute stops billing and the database pauses when idle.
@@ -177,7 +185,7 @@ Grafana's EVtivity folder has dashboards for system metrics, business metrics, l
 
 - [Deployment guide](docs/deployment.md): every configuration option, credential rotation, observability, OCPP TLS, demo data, GitHub Actions
 - [Observability](docs/observability.md): Grafana, metrics and logs, CloudWatch dashboards, alerts
-- [Security](docs/security.md): controls, credentials, network, and tagging
+- [Security](docs/security.md): controls, credentials, network, WAF rules, and tagging
 - [Compliance exceptions](docs/compliance-exceptions.md): the few AWS best-practice checks that are not met, and why
 - [Cost report](docs/cost-report.md): estimated monthly cost per environment
 

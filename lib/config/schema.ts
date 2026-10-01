@@ -300,8 +300,42 @@ export const configSchema = z
     waf: z
       .strictObject({
         enabled: z.boolean().default(false),
+        // Requests per IP per 5 minutes. rateLimitPer5Min covers every host
+        // except OCPP. The auth and guest limits count POSTs only.
         rateLimitPer5Min: z.number().int().min(100).default(2000),
-        blockCountries: z.array(z.string().length(2)).default([]),
+        ocppRateLimitPer5Min: z.number().int().min(100).default(20000),
+        authRateLimitPer5Min: z.number().int().min(10).default(50),
+        guestRateLimitPer5Min: z.number().int().min(10).default(100),
+        // Seeds the WAF IP set that lets Stripe webhooks through. Source:
+        // https://stripe.com/files/ips/ips_webhooks.json. Edit the live set
+        // with scripts/stripe-webhook-ips.sh. An empty list removes the rule.
+        stripeWebhookIps: z
+          .array(z.cidrv4())
+          .default(
+            [
+              '3.18.12.63',
+              '3.69.109.8',
+              '3.120.168.93',
+              '3.130.192.231',
+              '13.235.14.237',
+              '13.235.122.149',
+              '18.211.135.69',
+              '35.154.171.200',
+              '35.157.207.129',
+              '52.15.183.38',
+              '54.88.130.119',
+              '54.88.130.237',
+              '54.187.174.169',
+              '54.187.205.235',
+              '54.187.216.72',
+            ].map((ip) => `${ip}/32`),
+          ),
+        // Only requests from these countries (ISO 3166-1 alpha-2) pass. An
+        // empty list turns the rule off. The OCPP host is exempt, and the OCPP
+        // TLS NLB bypasses the ALB entirely.
+        allowCountries: z
+          .array(z.string().regex(/^[A-Z]{2}$/, 'two uppercase letters (ISO 3166-1 alpha-2)'))
+          .default(['US']),
         // Managed rules switched to count mode. Charging stations often send
         // no User-Agent, and bulk imports exceed the 8 KB body limit.
         countRules: z.array(z.string()).default(['NoUserAgent_HEADER', 'SizeRestrictions_BODY']),
