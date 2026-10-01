@@ -112,6 +112,32 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Lambda: custom resource handlers cannot recreate their log group after deletion', () => {
+      // They run once more while their stack is deleted. A recreated group
+      // makes the next deploy of the environment fail with "already exists".
+      let guarded = 0;
+      for (const [id, r] of Object.entries(resources)) {
+        if (r.Type !== 'AWS::Lambda::Function') continue;
+        const logging = r.Properties?.['LoggingConfig'] as
+          { LogGroup?: { Ref?: string } } | undefined;
+        const logGroup = logging?.LogGroup?.Ref;
+        if (logGroup == null || !logGroup.includes('ManagedLogs')) continue;
+        const deps = (r as { DependsOn?: string[] }).DependsOn ?? [];
+        assert.ok(deps.includes(logGroup), `${id} depends on ${logGroup}`);
+        const deny = deps.find((d) => {
+          const p = resources[d];
+          return (
+            p?.Type === 'AWS::IAM::Policy' &&
+            JSON.stringify(p.Properties?.['PolicyDocument']).includes('"Deny"') &&
+            JSON.stringify(p.Properties?.['PolicyDocument']).includes(logGroup)
+          );
+        });
+        assert.ok(deny, `${id} depends on a policy denying logs:CreateLogGroup on ${logGroup}`);
+        guarded++;
+      }
+      assert.ok(guarded > 0, 'at least one custom resource handler is guarded');
+    });
+
     void it('IAM: task roles grant Resource "*" only for ECS Exec', () => {
       // cdk-nag acknowledges IAM5 Resource::* on task roles for ECS Exec.
       // This keeps that acknowledgement from hiding any other wildcard grant.

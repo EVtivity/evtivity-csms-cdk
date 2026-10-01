@@ -204,11 +204,9 @@ With the dev settings (`removal: destroy` everywhere) this deletes all data. Pro
 A few things can remain after a destroy. Delete them when the environment is gone for good:
 
 - ACM's DNS validation CNAME (`_<hash>.<subdomain>.<apex>`) in the hosted zone.
-- A log group or two under `/evtivity/<env>/lambda/`. The custom resource handlers log once more while their stack is deleted, and Lambda delivers those logs after the group is gone, which recreates it.
 - `/aws/ecs/containerinsights/evtivity-<env>/performance`, which ECS creates for Container Insights.
 
 ```bash
-aws logs describe-log-groups --log-group-name-prefix /evtivity/dev/ --query 'logGroups[].logGroupName'
 aws logs describe-log-groups --log-group-name-prefix /aws/ecs/containerinsights/evtivity-dev/ --query 'logGroups[].logGroupName'
 ```
 
