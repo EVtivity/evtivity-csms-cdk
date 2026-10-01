@@ -129,8 +129,9 @@ for (const env of ENVS) {
     });
 
     void it('Lambda: custom resource handlers cannot recreate their log group after deletion', () => {
-      // They run once more while their stack is deleted. A recreated group
-      // makes the next deploy of the environment fail with "already exists".
+      // They run once more while their stack is deleted, and Lambda delivers
+      // those logs with the function's role. A recreated group makes the next
+      // deploy of the environment fail with "already exists".
       let guarded = 0;
       for (const [id, r] of Object.entries(resources)) {
         if (r.Type !== 'AWS::Lambda::Function') continue;
@@ -140,15 +141,13 @@ for (const env of ENVS) {
         if (logGroup == null || !logGroup.includes('ManagedLogs')) continue;
         const deps = (r as { DependsOn?: string[] }).DependsOn ?? [];
         assert.ok(deps.includes(logGroup), `${id} depends on ${logGroup}`);
-        const deny = deps.find((d) => {
-          const p = resources[d];
-          return (
-            p?.Type === 'AWS::IAM::Policy' &&
-            JSON.stringify(p.Properties?.['PolicyDocument']).includes('"Deny"') &&
-            JSON.stringify(p.Properties?.['PolicyDocument']).includes(logGroup)
-          );
-        });
-        assert.ok(deny, `${id} depends on a policy denying logs:CreateLogGroup on ${logGroup}`);
+        // The role too, so the group is deleted last and nothing can recreate it.
+        const role = (r.Properties?.['Role'] as { 'Fn::GetAtt'?: [string, string] } | undefined)?.[
+          'Fn::GetAtt'
+        ]?.[0];
+        assert.ok(role != null, `${id} has a role in this stack`);
+        const roleDeps = (resources[role] as { DependsOn?: string[] } | undefined)?.DependsOn ?? [];
+        assert.ok(roleDeps.includes(logGroup), `${role} depends on ${logGroup}`);
         guarded++;
       }
       assert.ok(guarded > 0, 'at least one custom resource handler is guarded');
