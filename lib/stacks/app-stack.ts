@@ -214,6 +214,8 @@ export class AppStack extends Stack {
             COOKIE_DOMAIN: zoneApex(config),
             OCPP_PORT: '8080',
             OCPP_SERVER_URL: ocppUrl,
+            // Public wss:// address a station gets when moved to security profile 2.
+            ...(urls.ocpp !== '' && { OCPP_STATION_TLS_URL: urls.ocpp }),
             SEED_DEMO: 'false',
           });
           secrets['JWT_SECRET'] = ecs.Secret.fromSecretsManager(data.jwtSecret);
