@@ -64,6 +64,10 @@ try {
 /**
  * Upserts the settings from SETTINGS_JSON. The config schema rejects
  * credentials (keys ending in Enc), so every value here is plain.
+ *
+ * The JSON text is bound as text and cast in SQL. Bound straight to a jsonb
+ * parameter, postgres.js serializes it again and every value is stored as a
+ * string (true becomes "true", "USD" becomes "\"USD\"").
  */
 export const SEED_SETTINGS_JS = `
 import postgres from 'postgres';
@@ -77,8 +81,8 @@ try {
     if (value === '' || value === null || value === undefined) continue;
     const json = JSON.stringify(value);
     await sql.unsafe(
-      'INSERT INTO settings (key, value) VALUES ($1, $2::jsonb) ' +
-        'ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = now()',
+      'INSERT INTO settings (key, value) VALUES ($1, $2::text::jsonb) ' +
+        'ON CONFLICT (key) DO UPDATE SET value = $2::text::jsonb, updated_at = now()',
       [name, json],
     );
     count++;
@@ -135,7 +139,7 @@ try {
     const rows = JSON.parse(readFileSync(file, 'utf8'));
     for (const row of rows) {
       await sql.unsafe(
-        'UPDATE settings SET value = $2::jsonb, updated_at = now() WHERE key = $1 AND value IS DISTINCT FROM $2::jsonb',
+        'UPDATE settings SET value = $2::text::jsonb, updated_at = now() WHERE key = $1 AND value IS DISTINCT FROM $2::text::jsonb',
         [row.key, JSON.stringify(row.value)],
       );
     }
