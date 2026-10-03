@@ -557,14 +557,47 @@ export const configSchema = z
     }
     const paymentProvider = c.appSettings['payments.provider'];
     const paymentProviders = c.payments.allowSimulatedProvider
-      ? ['none', 'stripe', 'simulated']
-      : ['none', 'stripe'];
+      ? ['none', 'stripe', 'adyen', 'simulated']
+      : ['none', 'stripe', 'adyen'];
     if (paymentProvider != null && !paymentProviders.includes(String(paymentProvider))) {
       ctx.addIssue({
         code: 'custom',
         path: ['appSettings', 'payments.provider'],
         message: `unsupported payment provider ${String(paymentProvider)}: use ${paymentProviders.join(', ')}`,
       });
+    }
+    // Non-secret Adyen settings, validated like the Helm chart. Credentials go in the dashboard.
+    const adyenIssue = (key: string, message: string): void => {
+      ctx.addIssue({ code: 'custom', path: ['appSettings', key], message });
+    };
+    const adyenEnvironment = c.appSettings['adyen.environment'];
+    if (adyenEnvironment != null && !['test', 'live'].includes(String(adyenEnvironment))) {
+      adyenIssue('adyen.environment', 'use test or live');
+    }
+    const adyenLiveUrlPrefix = c.appSettings['adyen.liveUrlPrefix'];
+    if (adyenEnvironment === 'live' && (adyenLiveUrlPrefix == null || adyenLiveUrlPrefix === '')) {
+      adyenIssue('adyen.liveUrlPrefix', 'required when adyen.environment is live');
+    }
+    if (
+      adyenLiveUrlPrefix != null &&
+      adyenLiveUrlPrefix !== '' &&
+      !/^[a-z0-9]+-[A-Za-z0-9]+$/.test(String(adyenLiveUrlPrefix))
+    ) {
+      adyenIssue(
+        'adyen.liveUrlPrefix',
+        'not an Adyen live URL prefix, for example 1797a841fbb37ca7-AdyenDemo',
+      );
+    }
+    const adyenLiveRegion = c.appSettings['adyen.liveRegion'];
+    if (
+      adyenLiveRegion != null &&
+      !['eu', 'us', 'au', 'nea', 'in'].includes(String(adyenLiveRegion))
+    ) {
+      adyenIssue('adyen.liveRegion', 'use eu, us, au, nea, or in');
+    }
+    const adyenAdjustment = c.appSettings['adyen.authorisationAdjustment'];
+    if (adyenAdjustment != null && typeof adyenAdjustment !== 'boolean') {
+      adyenIssue('adyen.authorisationAdjustment', 'use true or false');
     }
     if (c.cssTls.enabled && (c.cssTls.secretName == null || c.cssTls.secretName === '')) {
       ctx.addIssue({

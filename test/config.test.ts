@@ -102,12 +102,35 @@ void describe('config validation', () => {
   void it('validates the payment provider setting', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: stripe\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: none\n'));
-    assert.throws(loadWith('appSettings:\n  payments.provider: adyen\n'), /payment provider/);
+    assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: adyen\n'));
+    assert.throws(loadWith('appSettings:\n  payments.provider: braintree\n'), /payment provider/);
     assert.throws(loadWith('appSettings:\n  payments.provider: simulated\n'), /payment provider/);
     assert.doesNotThrow(
       loadWith(
         'appSettings:\n  payments.provider: simulated\npayments:\n  allowSimulatedProvider: true\n',
       ),
+    );
+  });
+
+  void it('validates the non-secret Adyen settings like the Helm chart', () => {
+    assert.doesNotThrow(loadWith('appSettings:\n  adyen.environment: test\n'));
+    assert.throws(loadWith('appSettings:\n  adyen.environment: staging\n'), /test or live/);
+    assert.throws(loadWith('appSettings:\n  adyen.environment: live\n'), /required when/);
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  adyen.environment: live\n  adyen.liveUrlPrefix: 1797a841fbb37ca7-AdyenDemo\n',
+      ),
+    );
+    assert.throws(
+      loadWith('appSettings:\n  adyen.environment: live\n  adyen.liveUrlPrefix: not a prefix\n'),
+      /live URL prefix/,
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  adyen.liveRegion: eu\n'));
+    assert.throws(loadWith('appSettings:\n  adyen.liveRegion: apse\n'), /eu, us, au, nea, or in/);
+    assert.doesNotThrow(loadWith('appSettings:\n  adyen.authorisationAdjustment: true\n'));
+    assert.throws(
+      loadWith('appSettings:\n  adyen.authorisationAdjustment: maybe\n'),
+      /true or false/,
     );
   });
 
