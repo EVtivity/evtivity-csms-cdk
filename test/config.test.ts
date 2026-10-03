@@ -54,6 +54,15 @@ void describe('config validation', () => {
     // AWS WAF rejects rate limits below 10.
     assert.throws(loadWith('waf:\n  authRateLimitPer5Min: 5\n'), /authRateLimitPer5Min/);
     assert.throws(loadWith('waf:\n  guestRateLimitPer5Min: 5\n'), /guestRateLimitPer5Min/);
+    assert.equal(
+      (loadWith('')() as { waf: { adyenWebhookRateLimitPer5Min: number } }).waf
+        .adyenWebhookRateLimitPer5Min,
+      1000,
+    );
+    assert.throws(
+      loadWith('waf:\n  adyenWebhookRateLimitPer5Min: 50\n'),
+      /adyenWebhookRateLimitPer5Min/,
+    );
   });
 
   void it('rejects the removed currency settings and unsupported company currencies', () => {

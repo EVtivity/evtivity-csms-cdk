@@ -304,7 +304,7 @@ for (const env of ENVS) {
         assert.deepEqual(stripe.Action, { Allow: {} });
         assert.match(
           text(stripe),
-          /"PositionalConstraint":"EXACTLY","SearchString":"\/v1\/webhooks\/stripe"/,
+          /"PositionalConstraint":"EXACTLY","SearchString":"\/v1\/webhooks\/payments\/stripe"/,
         );
         assert.match(text(stripe), /IPSetReferenceStatement/);
         const geoRule = byName('GeoAllow');
@@ -341,6 +341,32 @@ for (const env of ENVS) {
           text(byName('OcppRateLimitPerIp')),
           new RegExp(`"Limit":${String(w.ocppRateLimitPer5Min)}`),
         );
+      }
+
+      // Adyen publishes no IP ranges and sends from outside the allowed
+      // countries: the exact webhook POST skips the country rule and has its
+      // own rate limit. Every other API path stays behind the country rule.
+      const adyenPath = '"SearchString":"/v1/webhooks/payments/adyen"';
+      const adyen = byName('AdyenWebhookRateLimit');
+      assert.equal(Boolean(adyen), api != null);
+      if (api) {
+        const limit = text(adyen);
+        assert.match(limit, new RegExp(`"Limit":${String(w.adyenWebhookRateLimitPer5Min)}`));
+        for (const s of ['"SearchString":"POST"', `"SearchString":"${api}"`]) {
+          assert.ok(limit.includes(s), `Adyen limit matches ${s}`);
+        }
+        assert.ok(limit.includes(`"PositionalConstraint":"EXACTLY",${adyenPath}`), 'exact path');
+        if (geo) {
+          const geoText = text(geo);
+          assert.ok(
+            geoText.includes(`{"NotStatement":{"Statement":{"AndStatement":{"Statements":[`),
+            'GeoAllow exempts the Adyen webhook',
+          );
+          assert.ok(geoText.includes(adyenPath), 'GeoAllow names the Adyen path');
+          assert.ok(!geoText.includes('/v1/webhooks/payments/stripe'), 'Stripe is not geo exempt');
+        }
+      } else if (geo) {
+        assert.ok(!text(geo).includes(adyenPath));
       }
 
       // Path limits count POSTs only, and never token refresh or logout.

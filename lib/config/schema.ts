@@ -306,6 +306,9 @@ export const configSchema = z
         ocppRateLimitPer5Min: z.number().int().min(100).default(20000),
         authRateLimitPer5Min: z.number().int().min(10).default(50),
         guestRateLimitPer5Min: z.number().int().min(10).default(100),
+        // POSTs per IP per 5 minutes to the Adyen webhook, which the country
+        // rule exempts. Adyen batches events and retries failed deliveries.
+        adyenWebhookRateLimitPer5Min: z.number().int().min(100).default(1000),
         // Seeds the WAF IP set that lets Stripe webhooks through. Source:
         // https://stripe.com/files/ips/ips_webhooks.json. Edit the live set
         // with scripts/stripe-webhook-ips.sh. An empty list removes the rule.

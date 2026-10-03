@@ -294,6 +294,14 @@ export class AlbStack extends Stack {
     );
     // Exempts the OCPP host from address-based rules. Undefined when OCPP is off.
     const notOcpp = ocppHost == null ? undefined : not(hostIs(ocppHost));
+    // Adyen publishes no webhook IP ranges and sends from its own data centers
+    // (EU for most accounts), so the country rule would block it. The API
+    // checks Basic auth and the HMAC signature of every item, and
+    // AdyenWebhookRateLimit bounds the exempt path. Undefined when the API is off.
+    const adyenWebhook =
+      apiHost == null
+        ? undefined
+        : all([hostIs(apiHost), methodIs('POST'), path('EXACTLY', '/v1/webhooks/payments/adyen')]);
 
     const stripeIps = config.waf.stripeWebhookIps;
     if (apiHost != null && stripeIps.length > 0) {
@@ -314,7 +322,7 @@ export class AlbStack extends Stack {
         action: { allow: {} },
         statement: all([
           hostIs(apiHost),
-          path('EXACTLY', '/v1/webhooks/stripe'),
+          path('EXACTLY', '/v1/webhooks/payments/stripe'),
           { ipSetReferenceStatement: { arn: stripeSet.attrArn } },
         ]),
         visibilityConfig: visibility('StripeWebhookAllow'),
@@ -364,7 +372,11 @@ export class AlbStack extends Stack {
         name: 'GeoAllow',
         priority: 5,
         action: { block: {} },
-        statement: notOcpp ? all([outside, notOcpp]) : outside,
+        statement: all(
+          [outside, notOcpp, adyenWebhook ? not(adyenWebhook) : undefined].filter(
+            (st): st is Statement => st != null,
+          ),
+        ),
         visibilityConfig: visibility('GeoAllow'),
       });
     }
@@ -408,6 +420,16 @@ export class AlbStack extends Stack {
           103,
           config.waf.guestRateLimitPer5Min,
           all([hostIs(apiHost), methodIs('POST'), path('STARTS_WITH', '/v1/portal/guest/')]),
+        ),
+      );
+    }
+    if (adyenWebhook != null) {
+      rules.push(
+        rateLimit(
+          'AdyenWebhookRateLimit',
+          104,
+          config.waf.adyenWebhookRateLimitPer5Min,
+          adyenWebhook,
         ),
       );
     }
