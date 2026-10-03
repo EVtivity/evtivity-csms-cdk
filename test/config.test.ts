@@ -81,6 +81,36 @@ void describe('config validation', () => {
     );
   });
 
+  void it('gates the simulated payment provider', () => {
+    const payments = (local: string, base = BASE): { allowSimulatedProvider: boolean } =>
+      (loadWith(local, base)() as { payments: { allowSimulatedProvider: boolean } }).payments;
+    assert.equal(payments('').allowSimulatedProvider, false);
+    assert.equal(
+      payments('payments:\n  allowSimulatedProvider: true\n').allowSimulatedProvider,
+      true,
+    );
+    assert.throws(
+      loadWith('payments:\n  allowSimulatedProvider: true\n', { ...BASE, env: 'prod' }),
+      /not allowed in prod/,
+    );
+    assert.throws(loadWith('seedDemo:\n  enabled: true\n'), /simulated cards/);
+    assert.doesNotThrow(
+      loadWith('seedDemo:\n  enabled: true\npayments:\n  allowSimulatedProvider: true\n'),
+    );
+  });
+
+  void it('validates the payment provider setting', () => {
+    assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: stripe\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: none\n'));
+    assert.throws(loadWith('appSettings:\n  payments.provider: adyen\n'), /payment provider/);
+    assert.throws(loadWith('appSettings:\n  payments.provider: simulated\n'), /payment provider/);
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  payments.provider: simulated\npayments:\n  allowSimulatedProvider: true\n',
+      ),
+    );
+  });
+
   void it('rejects redeploys less often than credentials rotate', () => {
     assert.throws(
       loadWith('ecs:\n  redeployEveryDays: 30\nrotation:\n  databaseDays: 7\n'),

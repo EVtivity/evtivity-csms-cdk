@@ -101,6 +101,19 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Payments: api, ocpp and worker get the simulated provider gate, off by default', () => {
+      const containers = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .filter((c) => (c.Environment ?? []).some((e) => e.Name === 'PAYMENTS_ALLOW_SIMULATED'));
+      assert.ok(containers.length > 0, 'at least one service carries the gate');
+      for (const c of containers) {
+        const env = (c.Environment ?? []) as { Name: string; Value?: unknown }[];
+        const value = env.find((e) => e.Name === 'PAYMENTS_ALLOW_SIMULATED')?.Value;
+        assert.equal(value, String(config.payments.allowSimulatedProvider));
+        if (config.env === 'prod') assert.equal(value, 'false');
+      }
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

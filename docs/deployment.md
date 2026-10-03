@@ -166,6 +166,8 @@ Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 
 
 Loads the CSMS demo dataset: sites, 2000 stations, operators, drivers, sessions, and simulator stations. Off by default. Prod rejects it.
 
+Demo drivers pay with simulated cards, so it also needs `payments.allowSimulatedProvider: true`.
+
 - It runs once, after the database job. Later deploys, including image updates, do not rerun it. Bump `seedDemo.revision` to run it again. The seed skips the dataset when it is already present, so a rerun mainly reapplies the steps below.
 - The seed rewrites every default setting. The job then reapplies `appSettings` and the stack settings, so the result matches a normal deploy.
 - The seed resets the initial admin password to the value in `evtivity/<env>/initial-admin` and forces a reset at next sign-in.
@@ -178,6 +180,10 @@ aws secretsmanager get-secret-value --secret-id evtivity/dev/demo-password \
 ```
 
 Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
+
+### Simulated payments: `payments.allowSimulatedProvider`
+
+Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which allows the simulated (test) payment provider. It moves no money. Off by default. Prod rejects it. `appSettings['payments.provider']` accepts `none` and `stripe`, plus `simulated` when this is on.
 
 ## Observability and alerts
 

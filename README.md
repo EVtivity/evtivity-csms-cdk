@@ -72,14 +72,15 @@ observability:
 
 Hostnames are `<service>.<subdomain>.<apex>`. With `domain.subdomain: dev` the dashboard is `csms.dev.example.com`. An empty subdomain gives `csms.example.com`. Every option is documented in [`lib/config/schema.ts`](lib/config/schema.ts). Common ones:
 
-| Option                     | What it does                                                       |
-| -------------------------- | ------------------------------------------------------------------ |
-| `image.tag`                | The CSMS release to run, for example `0.1.22`                      |
-| `services.<name>.enabled`  | Turn a service off (for example the simulator in prod)             |
-| `services.<name>.hostname` | Rename a service's hostname                                        |
-| `seedDemo.enabled`         | Load demo sites, stations, and sessions once (not allowed in prod) |
-| `monitoring.alarmEmail`    | Email address that receives alerts                                 |
-| `rotation.databaseDays`    | How often database credentials rotate                              |
+| Option                            | What it does                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| `image.tag`                       | The CSMS release to run, for example `0.1.22`                                        |
+| `services.<name>.enabled`         | Turn a service off (for example the simulator in prod)                               |
+| `services.<name>.hostname`        | Rename a service's hostname                                                          |
+| `seedDemo.enabled`                | Load demo sites, stations, and sessions once (not allowed in prod)                   |
+| `payments.allowSimulatedProvider` | Allow the simulated payment provider (required with `seedDemo`, not allowed in prod) |
+| `monitoring.alarmEmail`           | Email address that receives alerts                                                   |
+| `rotation.databaseDays`           | How often database credentials rotate                                                |
 
 ### 2. Deploy
 

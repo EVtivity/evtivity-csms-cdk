@@ -391,6 +391,15 @@ export const configSchema = z
       })
       .prefault({}),
 
+    // Allows the simulated (test) payment provider in the api, ocpp and worker
+    // services (PAYMENTS_ALLOW_SIMULATED). It moves no money. Not allowed in
+    // prod; required with seedDemo, whose drivers have simulated cards.
+    payments: z
+      .strictObject({
+        allowSimulatedProvider: z.boolean().default(false),
+      })
+      .prefault({}),
+
     monitoring: z
       .strictObject({
         dashboard: z.boolean().default(true),
@@ -530,6 +539,31 @@ export const configSchema = z
         code: 'custom',
         path: ['seedDemo', 'enabled'],
         message: 'demo data is not allowed in prod',
+      });
+    }
+    if (c.payments.allowSimulatedProvider && c.env === 'prod') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['payments', 'allowSimulatedProvider'],
+        message: 'the simulated payment provider is not allowed in prod',
+      });
+    }
+    if (c.seedDemo.enabled && !c.payments.allowSimulatedProvider) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['payments', 'allowSimulatedProvider'],
+        message: 'required with seedDemo.enabled: demo drivers pay with simulated cards',
+      });
+    }
+    const paymentProvider = c.appSettings['payments.provider'];
+    const paymentProviders = c.payments.allowSimulatedProvider
+      ? ['none', 'stripe', 'simulated']
+      : ['none', 'stripe'];
+    if (paymentProvider != null && !paymentProviders.includes(String(paymentProvider))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'payments.provider'],
+        message: `unsupported payment provider ${String(paymentProvider)}: use ${paymentProviders.join(', ')}`,
       });
     }
     if (c.cssTls.enabled && (c.cssTls.secretName == null || c.cssTls.secretName === '')) {
