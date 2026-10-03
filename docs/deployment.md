@@ -12,10 +12,10 @@
 | Stack                    | Contents                                                                                    |
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `Evtivity-<Env>-Network` | VPC, NAT (fck-nat or gateway), flow logs, S3 gateway endpoint, ALB/task/NLB security groups |
-| `Evtivity-<Env>-Domain`  | ACM certificate for `<zone>` and `*.<zone>`                                                 |
+| `Evtivity-<Env>-Domain`  | Hosted zone reference. Holds the superseded wildcard certificate until the next release     |
 | `Evtivity-<Env>-Storage` | Logs bucket (ALB, S3 access, and VPC flow logs), app bucket, Grafana bucket                 |
 | `Evtivity-<Env>-Data`    | Aurora PostgreSQL, Valkey, secrets, rotation                                                |
-| `Evtivity-<Env>-Alb`     | ALB, listeners, WAF                                                                         |
+| `Evtivity-<Env>-Alb`     | ALB, listeners, ACM certificate naming each service host exactly (no wildcard), WAF         |
 | `Evtivity-<Env>-App`     | ECS cluster, database job, services, DNS records, OCPP TLS NLB, redeploy schedules, alarms  |
 
 ## First deploy
@@ -149,6 +149,8 @@ aws secretsmanager create-secret --name evtivity/dev/ocpp-tls --secret-string "$
   --arg cert "$(cat tls.crt)" --arg key "$(cat tls.key)" --arg ca "$(cat ca.crt)" \
   '{cert:$cert, key:$key, ca:$ca}')"
 ```
+
+The certificate in `cert` must name `ocpp-tls.<zone>` exactly. Stations reject a wildcard certificate unless `AllowCSMSTLSWildcards` (2.1) or `AllowCentralSystemTLSWildcards` (1.6) is true, and both default to false.
 
 Stations connect to `wss://ocpp-tls.<zone>:8443/<stationId>`. Security profiles 0 to 2 keep using `wss://ocpp.<zone>/<stationId>` through the ALB. See EXC-006.
 

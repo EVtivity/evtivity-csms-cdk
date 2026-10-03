@@ -64,7 +64,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     config,
     vpc: network.vpc,
     albSg: network.albSg,
-    certificate: domain.certificate,
+    hostedZone: domain.hostedZone,
     logsBucket: storage.logsBucket,
     description: d.alb,
   });
@@ -135,7 +135,10 @@ function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string>
       'flow logs',
       'security groups',
     ]),
-    domain: list(['ACM certificate for the environment hostnames, validated in Route 53']),
+    domain: list([
+      'Route 53 hosted zone reference',
+      'superseded wildcard ACM certificate, removed in the next release',
+    ]),
     storage: list([
       'S3 buckets for load balancer access logs',
       'application files',
@@ -149,6 +152,7 @@ function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string>
     ]),
     alb: list([
       'Application Load Balancer with HTTPS listener and HTTP redirect',
+      'ACM certificate for the service hostnames, validated in Route 53',
       (config.waf.enabled || obs) && 'WAF web ACL',
       config.waf.enabled && 'managed rules and rate limiting',
       obs && 'Grafana IP allowlist',

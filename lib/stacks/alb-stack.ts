@@ -11,19 +11,20 @@ import {
   aws_elasticloadbalancingv2 as elbv2,
   aws_certificatemanager as acm,
   aws_logs as logs,
+  aws_route53 as route53,
   aws_s3 as s3,
   aws_wafv2 as wafv2,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import type { Config } from '../config/index.js';
 import type { ServiceName } from '../catalog.js';
-import { grafanaHost, namePrefix, removalPolicyOf, serviceHost } from '../util.js';
+import { albHosts, grafanaHost, namePrefix, removalPolicyOf, serviceHost } from '../util.js';
 
 export interface AlbStackProps extends StackProps {
   config: Config;
   vpc: ec2.IVpc;
   albSg: ec2.ISecurityGroup;
-  certificate: acm.ICertificate;
+  hostedZone: route53.IHostedZone;
   logsBucket: s3.IBucket;
 }
 
@@ -125,20 +126,37 @@ const rateLimit = (name: string, priority: number, limit: number, scopeDown?: St
 });
 
 /**
- * Public ALB with an HTTP-to-HTTPS redirect, a TLS 1.2+ HTTPS listener, and a
- * WAF web ACL. The ACL carries the Grafana allowlist rule when observability
- * is enabled and the protection rules when `waf.enabled`. Services attach
- * host-header rules in the app stack.
+ * Public ALB with an HTTP-to-HTTPS redirect, a TLS 1.2+ HTTPS listener, its
+ * ACM certificate, and a WAF web ACL. The ACL carries the Grafana allowlist
+ * rule when observability is enabled and the protection rules when
+ * `waf.enabled`. Services attach host-header rules in the app stack.
  */
 export class AlbStack extends Stack {
   readonly alb: elbv2.ApplicationLoadBalancer;
   readonly httpsListener: elbv2.ApplicationListener;
   readonly httpListener: elbv2.ApplicationListener;
+  readonly certificate: acm.ICertificate;
 
   constructor(scope: Construct, id: string, props: AlbStackProps) {
     super(scope, id, props);
-    const { config, vpc, albSg, certificate, logsBucket } = props;
+    const { config, vpc, albSg, hostedZone, logsBucket } = props;
     const prefix = namePrefix(config);
+
+    // Names every host exactly. Stations reject a wildcard CSMS certificate
+    // unless AllowCSMSTLSWildcards (2.1) or AllowCentralSystemTLSWildcards
+    // (1.6) is true, and both default to false. Lives in this stack so a
+    // change to the host list replaces it in place: CloudFormation issues and
+    // validates the new certificate, moves the listener to it, then deletes
+    // the old one.
+    const [commonName, ...otherNames] = albHosts(config);
+    if (commonName == null) {
+      throw new Error('The ALB needs at least one enabled public service or Grafana');
+    }
+    this.certificate = new acm.Certificate(this, 'Cert', {
+      domainName: commonName,
+      subjectAlternativeNames: otherNames,
+      validation: acm.CertificateValidation.fromDns(hostedZone),
+    });
 
     this.alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       loadBalancerName: prefix,
@@ -173,7 +191,7 @@ export class AlbStack extends Stack {
       open: false,
       // ELBSecurityPolicy-TLS13-1-2-Res-2021-06: TLS 1.2 and 1.3, forward-secret ciphers.
       sslPolicy: elbv2.SslPolicy.TLS13_RES,
-      certificates: [certificate],
+      certificates: [this.certificate],
       defaultAction: elbv2.ListenerAction.fixedResponse(404, {
         contentType: 'text/plain',
         messageBody: 'Not Found',
@@ -185,6 +203,7 @@ export class AlbStack extends Stack {
     }
 
     new CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
+    new CfnOutput(this, 'CertificateArn', { value: this.certificate.certificateArn });
   }
 
   /** Creates the web ACL, its logging, and the Grafana allowlist when there is one. */

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { RemovalPolicy } from 'aws-cdk-lib';
-import { SERVICE_CATALOG, type ServiceName } from './catalog.js';
+import { SERVICE_CATALOG, SERVICE_NAMES, type ServiceName } from './catalog.js';
 import type { Config } from './config/index.js';
 
 export function removalPolicyOf(mode: 'destroy' | 'retain' | 'snapshot'): RemovalPolicy {
@@ -40,6 +40,22 @@ export function serviceUrl(
   if (!config.services[name].enabled) return '';
   const host = serviceHost(config, name);
   return host == null ? '' : `${scheme}://${host}`;
+}
+
+/**
+ * Every hostname the public ALB serves: enabled public services, then Grafana
+ * when observability is on. OCPP comes first so it is the certificate's
+ * common name, for stations that check only the CN.
+ */
+export function albHosts(config: Config): string[] {
+  const names = SERVICE_NAMES.filter((name) => config.services[name].enabled).sort(
+    (a, b) => Number(b === 'ocpp') - Number(a === 'ocpp'),
+  );
+  const hosts = names
+    .map((name) => serviceHost(config, name))
+    .filter((host): host is string => host != null);
+  if (config.observability.enabled) hosts.push(grafanaHost(config));
+  return hosts;
 }
 
 /** Stack name prefix, e.g. Evtivity-Dev. */

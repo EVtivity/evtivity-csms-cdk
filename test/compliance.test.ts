@@ -589,6 +589,47 @@ for (const env of ENVS) {
       if (env === 'prod') assert.equal(attrs['deletion_protection.enabled'], 'true');
     });
 
+    void it('ACM: the ALB certificate names every host exactly, with OCPP as the common name', () => {
+      // Stations reject a wildcard CSMS certificate by default
+      // (AllowCSMSTLSWildcards / AllowCentralSystemTLSWildcards = false).
+      const alb = templates['alb']?.toJSON()['Resources'] as Resources;
+      const https = ofType(alb, 'AWS::ElasticLoadBalancingV2::Listener').find(
+        (l) => l['Port'] === 443,
+      );
+      const certs = https?.['Certificates'] as { CertificateArn: unknown }[];
+      assert.equal(certs.length, 1);
+      const ref = (certs[0]?.CertificateArn as { Ref?: string }).Ref;
+      assert.ok(ref != null, 'the listener certificate is defined in the ALB stack');
+      const cert = alb[ref];
+      assert.ok(cert, `${ref} exists in the ALB stack`);
+      assert.equal(cert.Type, 'AWS::CertificateManager::Certificate');
+      const commonName = cert.Properties?.['DomainName'] as string;
+      const names = [
+        commonName,
+        ...((cert.Properties?.['SubjectAlternativeNames'] as string[] | undefined) ?? []),
+      ];
+      for (const name of names) assert.ok(!name.includes('*'), `${name} is not a wildcard`);
+
+      if (config.services.ocpp.enabled) assert.equal(commonName, serviceHost(config, 'ocpp'));
+      // Every DNS record on the ALB is covered. The OCPP TLS record points at
+      // the NLB, where the OCPP server presents its own certificate.
+      const tlsHost = `${config.ocppTls.hostname}.`;
+      const records = ofType(resources, 'AWS::Route53::RecordSet')
+        .filter((r) => r['Type'] === 'A')
+        .map((r) => String(r['Name']).replace(/\.$/, ''))
+        .filter((name) => !name.startsWith(tlsHost));
+      assert.ok(records.length > 0);
+      assert.deepEqual([...records].sort(), [...names].sort());
+
+      // The OCPP TLS NLB passes TCP through and never terminates TLS.
+      for (const l of ofType(resources, 'AWS::ElasticLoadBalancingV2::Listener')) {
+        if (l['Port'] !== 443 && l['Port'] !== 80) {
+          assert.equal(l['Protocol'], 'TCP');
+          assert.equal(l['Certificates'], undefined);
+        }
+      }
+    });
+
     void it('WAF: enabled and logging where configured (WAF.11)', () => {
       const acls = ofType(resources, 'AWS::WAFv2::WebACL');
       const aclExpected = config.waf.enabled || config.observability.enabled ? 1 : 0;
