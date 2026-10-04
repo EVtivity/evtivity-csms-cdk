@@ -25,22 +25,23 @@ The only customer-managed KMS key encrypts the alerts topic. CloudWatch alarms a
 
 ## Credentials
 
-| Secret                                   | Used by                            | Rotation                                                               |
-| ---------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
-| `evtivity/<env>/db-master`               | Database job only                  | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
-| `evtivity/<env>/db-app`                  | Every service                      | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
-| `evtivity/<env>/cache-app`               | Every service                      | Custom function keeps current and pending passwords on the Valkey user |
-| `evtivity/<env>/jwt`                     | API                                | Static (EXC-003)                                                       |
-| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, demo seed | Static (EXC-003)                                                       |
-| `evtivity/<env>/initial-admin`           | Database job                       | Static; the admin must change the password at first sign-in (EXC-003)  |
-| `evtivity/<env>/grafana-admin`           | Grafana                            | Static (EXC-003)                                                       |
+| Secret                                   | Used by                                            | Rotation                                                               |
+| ---------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `evtivity/<env>/db-master`               | Database job only                                  | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
+| `evtivity/<env>/db-app`                  | Every service                                      | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
+| `evtivity/<env>/cache-<service>`         | That service (api, ocpp, ocpi, worker, css)        | Custom function keeps current and pending passwords on the Valkey user |
+| `evtivity/<env>/cache-app`               | Nothing (legacy shared user, removed next release) | Same as `cache-<service>`                                              |
+| `evtivity/<env>/jwt`                     | API                                                | Static (EXC-003)                                                       |
+| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, demo seed                 | Static (EXC-003)                                                       |
+| `evtivity/<env>/initial-admin`           | Database job                                       | Static; the admin must change the password at first sign-in (EXC-003)  |
+| `evtivity/<env>/grafana-admin`           | Grafana                                            | Static (EXC-003)                                                       |
 
 How rotated credentials reach running tasks:
 
 - ECS reads secrets only when a task starts. The services receive `DB_*` and `REDIS_*` fields, and the image entrypoint builds `DATABASE_URL` and `REDIS_URL` from them.
 - Both rotation schemes keep the previous credential valid for one full interval: the database alternates between two roles, and the Valkey user holds two passwords.
 - An EventBridge Scheduler job forces a new deployment of each service every `ecs.redeployEveryDays` days (weekly by default). The config schema rejects a redeploy interval that is not shorter than the rotation interval.
-- The Valkey user may run everything the services need but no admin or dangerous commands (`on ~* &* +@all -@dangerous +info`). Changing its access string updates the user, which resets its passwords to the current secret, so redeploy the services after such a change.
+- Each service connects to Valkey as its own user. `config/redis-acl-rules.conf` (a copy of the CSMS repo's `docker/redis/acl-rules.conf`) sets its keys, pub/sub channels, and commands: only the worker reaches the BullMQ queues, only OCPP the station connection registry, and the simulator and OCPI cannot publish what they do not own (the simulator cannot publish `ocpp_commands`). No user may run admin or dangerous commands (`-@dangerous +info`). Changing an access string updates the user, which resets its passwords to the current secret, so redeploy the services after such a change.
 - With `secrets.removal: retain` (prod), every credential secret survives a stack delete, including the database and cache users, so a rebuild on the retained snapshot keeps working credentials. Their names are fixed, so a rebuilt Data stack must import them or they must be deleted first.
 - Application privileges belong to the `evtivity_app_group` role. The database job creates it and grants default privileges for tables that migrations create, and the rotation copies the group membership to the clone role. Migrations run as the cluster owner, so every table has one owner.
 

@@ -7,6 +7,8 @@
 // in the YAML config. The YAML decides whether a service runs and how it is
 // sized.
 
+import type { CacheUserName } from './redis-acl.js';
+
 export type ServiceName =
   'api' | 'ocpp' | 'ocpi' | 'csms' | 'portal' | 'worker' | 'css' | 'ocpiSim' | 'ocpiCpoSim';
 
@@ -28,8 +30,10 @@ export interface ServiceSpec {
   priority?: number;
   /** Other services that must be enabled for this one to work. */
   requires: ServiceName[];
-  /** Needs the application database and Valkey credentials. */
+  /** Needs the application database and Valkey. */
   usesData: boolean;
+  /** Valkey user the service connects as (config/redis-acl-rules.conf). Set when usesData. */
+  cacheUser?: CacheUserName;
   /** Needs the SETTINGS_ENCRYPTION_KEY secret. */
   usesSettingsKey: boolean;
   /** Needs read and write access to the application bucket. */
@@ -47,6 +51,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     priority: 10,
     requires: [],
     usesData: true,
+    cacheUser: 'api',
     usesSettingsKey: true,
     usesBucket: true,
   },
@@ -60,6 +65,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     priority: 20,
     requires: [],
     usesData: true,
+    cacheUser: 'ocpp',
     usesSettingsKey: true,
     usesBucket: false,
   },
@@ -73,6 +79,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     priority: 30,
     requires: [],
     usesData: true,
+    cacheUser: 'ocpi',
     usesSettingsKey: true,
     usesBucket: false,
   },
@@ -108,6 +115,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     public: false,
     requires: [],
     usesData: true,
+    cacheUser: 'worker',
     usesSettingsKey: true,
     usesBucket: true,
   },
@@ -118,6 +126,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     public: false,
     requires: ['ocpp'],
     usesData: true,
+    cacheUser: 'css',
     usesSettingsKey: false,
     usesBucket: false,
   },

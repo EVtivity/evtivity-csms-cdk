@@ -33,6 +33,7 @@ import { DbJob } from '../constructs/db-job.js';
 import { EnvMetrics } from '../constructs/metrics.js';
 import { Monitoring } from '../constructs/monitoring.js';
 import { Observability } from '../constructs/observability.js';
+import type { CacheUserName } from '../redis-acl.js';
 import {
   namePrefix,
   removalPolicyOf,
@@ -64,7 +65,8 @@ export interface AppStackProps extends StackProps {
     appDbSecret: secretsmanager.ISecret;
     cacheHost: string;
     cachePort: number;
-    cacheSecret: secretsmanager.ISecret;
+    /** Valkey credentials per service user (config/redis-acl-rules.conf). */
+    cacheSecrets: Partial<Record<CacheUserName, secretsmanager.ISecret>>;
     jwtSecret: secretsmanager.ISecret;
     settingsKeySecret: secretsmanager.ISecret;
     initialAdminSecret: secretsmanager.ISecret;
@@ -194,8 +196,11 @@ export class AppStack extends Stack {
         });
         secrets['DB_USER'] = ecs.Secret.fromSecretsManager(data.appDbSecret, 'username');
         secrets['DB_PASSWORD'] = ecs.Secret.fromSecretsManager(data.appDbSecret, 'password');
-        secrets['REDIS_USER'] = ecs.Secret.fromSecretsManager(data.cacheSecret, 'username');
-        secrets['REDIS_PASSWORD'] = ecs.Secret.fromSecretsManager(data.cacheSecret, 'password');
+        // Each service connects to Valkey as its own user.
+        const cacheSecret = spec.cacheUser == null ? undefined : data.cacheSecrets[spec.cacheUser];
+        if (cacheSecret == null) throw new Error(`no Valkey user for service ${name}`);
+        secrets['REDIS_USER'] = ecs.Secret.fromSecretsManager(cacheSecret, 'username');
+        secrets['REDIS_PASSWORD'] = ecs.Secret.fromSecretsManager(cacheSecret, 'password');
       }
       if (spec.usesSettingsKey) {
         secrets['SETTINGS_ENCRYPTION_KEY'] = ecs.Secret.fromSecretsManager(data.settingsKeySecret);
