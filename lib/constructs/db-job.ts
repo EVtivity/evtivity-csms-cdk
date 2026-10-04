@@ -24,7 +24,6 @@ import {
   SEED_DEMO_POST_JS,
   SEED_DEMO_SH,
   SEED_SETTINGS_JS,
-  SETTINGS_SNAPSHOT_JS,
   SIMULATOR_TARGETS_JS,
 } from '../db-job-scripts.js';
 import { tagService } from '../tagging.js';
@@ -236,8 +235,6 @@ export class DbJob extends Construct {
         environment: {
           SEED_CSS_TARGET_URL: props.simulator.ocppUrl,
           SEED_CSS_TLS_TARGET_URL: props.simulator.ocppTlsUrl,
-          SETTINGS_SNAPSHOT_JS,
-          SETTINGS_SNAPSHOT: '/tmp/settings-snapshot.json',
           DEMO_TLS_ENABLED: String(props.demo.tlsEnabled),
           DEMO_STATION_LIMIT: String(config.seedDemo.stationLimit),
           SEED_DEMO_POST_JS,
