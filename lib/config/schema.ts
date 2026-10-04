@@ -445,6 +445,19 @@ export const configSchema = z
       })
       .prefault({}),
 
+    // Station connection authentications in the ocpp service, so a reconnect
+    // wave cannot fill the database pool (OCPP_AUTH_MAX_CONCURRENT,
+    // OCPP_AUTH_MAX_QUEUED, OCPP_AUTH_MAX_WAIT_MS). Unset: half of
+    // aurora.poolMax at once, 1000 queued, 10000 ms wait. Over the queue or
+    // the wait a station gets 503 with Retry-After.
+    ocppConnectionAuth: z
+      .strictObject({
+        maxConcurrent: z.number().int().min(1).optional(),
+        maxQueued: z.number().int().min(0).optional(),
+        maxWaitMs: z.number().int().min(1).optional(),
+      })
+      .prefault({}),
+
     monitoring: z
       .strictObject({
         dashboard: z.boolean().default(true),
@@ -644,6 +657,16 @@ export const configSchema = z
           message: 'needs exactly one worker task (services.worker enabled, desiredCount 1)',
         });
       }
+    }
+    const authConcurrency = c.ocppConnectionAuth.maxConcurrent;
+    if (authConcurrency != null && authConcurrency > c.aurora.poolMax) {
+      // Lookups above the pool size wait in the driver and leave no connection
+      // for the messages of stations already connected.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ocppConnectionAuth', 'maxConcurrent'],
+        message: 'must not exceed aurora.poolMax',
+      });
     }
     if (c.payments.allowSimulatedProvider && c.env === 'prod') {
       ctx.addIssue({
