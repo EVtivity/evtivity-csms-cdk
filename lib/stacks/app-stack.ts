@@ -25,7 +25,13 @@ import {
   aws_servicediscovery as servicediscovery,
 } from 'aws-cdk-lib';
 import type { Construct, IConstruct } from 'constructs';
-import { SERVICE_CATALOG, SERVICE_NAMES, discoveryName, type ServiceName } from '../catalog.js';
+import {
+  OCTT_OCSP_RESPONDER_PORT,
+  SERVICE_CATALOG,
+  SERVICE_NAMES,
+  discoveryName,
+  type ServiceName,
+} from '../catalog.js';
 import type { AppSettingValue, Config } from '../config/index.js';
 import { AppService } from '../constructs/app-service.js';
 import { Dashboards } from '../constructs/dashboards.js';
@@ -275,6 +281,10 @@ export class AppStack extends Stack {
             OCPP_SERVER_URL: ocppUrl,
             CSMS_URL: urls.csms,
             PORTAL_URL: urls.portal,
+            // The ocpp service reaches the conformance run's OCSP responder here.
+            ...(config.octt.ocspResponder && {
+              OCTT_OCSP_RESPONDER_URL: `http://${internal('worker')}:${String(OCTT_OCSP_RESPONDER_PORT)}/ocsp`,
+            }),
           });
           break;
         case 'css':

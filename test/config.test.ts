@@ -235,6 +235,18 @@ void describe('config validation', () => {
     );
   });
 
+  void it('runs the conformance OCSP responder only with one worker task', () => {
+    const octt = (local: string): { ocspResponder: boolean } =>
+      (loadWith(local)() as { octt: { ocspResponder: boolean } }).octt;
+    assert.equal(octt('').ocspResponder, true);
+    assert.equal(octt('octt:\n  ocspResponder: false\n').ocspResponder, false);
+    assert.throws(loadWith('services:\n  worker:\n    desiredCount: 2\n'), /one worker task/);
+    assert.throws(loadWith('services:\n  worker:\n    enabled: false\n'), /one worker task/);
+    assert.doesNotThrow(
+      loadWith('octt:\n  ocspResponder: false\nservices:\n  worker:\n    desiredCount: 2\n'),
+    );
+  });
+
   void it('rejects OCPP TLS without its secret', () => {
     assert.throws(loadWith('ocppTls:\n  enabled: true\n'), /secretName/);
   });

@@ -187,7 +187,7 @@ export class NetworkStack extends Stack {
     for (const name of SERVICE_NAMES) {
       if (!config.services[name].enabled) continue;
       if (SERVICE_CATALOG[name].public) albPorts(name).forEach((p) => albTargetPorts.add(p));
-      internalPorts(name, ocppTlsPort).forEach((p) => internal.add(p));
+      internalPorts(name, ocppTlsPort, config.octt.ocspResponder).forEach((p) => internal.add(p));
     }
     if (config.observability.enabled) {
       const obs = new ec2.SecurityGroup(this, 'ObservabilitySg', {

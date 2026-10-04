@@ -434,6 +434,17 @@ export const configSchema = z
       })
       .prefault({}),
 
+    // Conformance (OCTT) runs started from the dashboard run in the worker.
+    // With ocspResponder on, the worker starts the Test System OCSP responder
+    // on OCTT_OCSP_RESPONDER_PORT during a run and the ocpp service reaches it
+    // through Cloud Map (OCTT_OCSP_RESPONDER_URL). Off: the OCSP tests
+    // (TC_C_50, TC_C_51, TC_C_52, TC_M_24) are skipped.
+    octt: z
+      .strictObject({
+        ocspResponder: z.boolean().default(false),
+      })
+      .prefault({}),
+
     monitoring: z
       .strictObject({
         dashboard: z.boolean().default(true),
@@ -617,6 +628,22 @@ export const configSchema = z
         path: ['seedDemo', 'enabled'],
         message: 'demo data is not allowed in prod',
       });
+    }
+    if (c.octt.ocspResponder) {
+      const worker = c.services.worker;
+      // The ocpp service resolves the worker through Cloud Map: with more than
+      // one task it can reach a worker that is not running the conformance run.
+      if (
+        !worker.enabled ||
+        worker.desiredCount > 1 ||
+        (worker.autoscaling != null && worker.autoscaling.max > 1)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['octt', 'ocspResponder'],
+          message: 'needs exactly one worker task (services.worker enabled, desiredCount 1)',
+        });
+      }
     }
     if (c.payments.allowSimulatedProvider && c.env === 'prod') {
       ctx.addIssue({
