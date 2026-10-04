@@ -117,39 +117,6 @@ try {
 }
 `;
 
-/**
- * Saves the settings table to SETTINGS_SNAPSHOT (argument "save") or writes
- * the saved values back (argument "restore"). The demo seed upserts its
- * Docker Compose defaults (SMTP on localhost:1025, an FTP host named ftp)
- * over every setting. Restoring keeps the settings added by the seed and
- * undoes its changes to existing ones.
- */
-export const SETTINGS_SNAPSHOT_JS = `
-import { readFileSync, writeFileSync } from 'node:fs';
-import postgres from 'postgres';
-
-const sql = postgres(process.env.DATABASE_URL, { max: 1 });
-const file = process.env.SETTINGS_SNAPSHOT;
-try {
-  if (process.argv[1] === 'save') {
-    const rows = await sql.unsafe('SELECT key, value FROM settings');
-    writeFileSync(file, JSON.stringify(rows));
-    console.log('[settings] saved ' + String(rows.length) + ' settings');
-  } else {
-    const rows = JSON.parse(readFileSync(file, 'utf8'));
-    for (const row of rows) {
-      await sql.unsafe(
-        'UPDATE settings SET value = $2::text::jsonb, updated_at = now() WHERE key = $1 AND value IS DISTINCT FROM $2::text::jsonb',
-        [row.key, JSON.stringify(row.value)],
-      );
-    }
-    console.log('[settings] restored ' + String(rows.length) + ' settings');
-  }
-} finally {
-  await sql.end();
-}
-`;
-
 /** Shell steps of the database job, in order. Stops at the first failure. */
 export const DB_JOB_SH = [
   'set -eu',
@@ -226,12 +193,10 @@ try {
 export const SEED_DEMO_SH = [
   'set -eu',
   'cd /app/packages/database',
-  'node --input-type=module -e "$SETTINGS_SNAPSHOT_JS" save',
   'echo "[demo] seed"',
+  // The seed only adds missing settings, so the values the database job
+  // stored stay. It enables roaming.enabled for the demo roaming rows.
   'SEED_DEMO=true npm run seed',
-  // The seed overwrites every default setting. Put the previous values back,
-  // then the configured ones.
-  'node --input-type=module -e "$SETTINGS_SNAPSHOT_JS" restore',
   'echo "[demo] passwords and simulator limit"',
   'node --input-type=module -e "$SEED_DEMO_POST_JS"',
   'echo "[demo] settings"',

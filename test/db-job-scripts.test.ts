@@ -130,4 +130,17 @@ void describe('database job scripts', () => {
     assert.deepEqual(stored['mobile.app.androidPackageNames'], ['com.evtivity.driver']);
     assert.equal(stored['company.currency'], 'EUR');
   });
+
+  // The CSMS seed only adds missing settings (it never overwrites), so the
+  // demo job keeps no settings save/restore around it. The configured
+  // settings are applied again after the seed.
+  void it('runs the demo seed without a settings snapshot, then the configured settings', () => {
+    const steps = scripts.SEED_DEMO_SH.split('\n');
+    const seed = steps.indexOf('SEED_DEMO=true npm run seed');
+    const settings = steps.findIndex((step) => step.includes('$SEED_SETTINGS_JS'));
+    assert.ok(seed >= 0, 'demo job runs the seed');
+    assert.ok(settings > seed, 'configured settings are applied after the seed');
+    assert.doesNotMatch(scripts.SEED_DEMO_SH, /SNAPSHOT/);
+    assert.equal('SETTINGS_SNAPSHOT_JS' in scripts, false);
+  });
 });
