@@ -63,7 +63,7 @@ One-time steps before the first deploy of this version to an environment that al
 
 `config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides. An empty or comment-only local file is fine.
 
-Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
+Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), invalid `mobile.app.*` lists, availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
 
 Common changes:
 
@@ -198,6 +198,23 @@ These keys are optional. Leave one out to keep the value set in Settings > Payme
 | `simulated.randomFailureRate` | Test provider failure rate of cards without a scenario, 0 to 1                    |
 
 `stripe.preAuthAmountCents` and `stripe.platformFeePercent` moved to `payments.*`. The synth rejects the old names. The upgrade copies the stored values to the new settings.
+
+### Mobile app builds in `appSettings`
+
+The API accepts a 3D Secure return URL from the driver app only when it leads back to one of your app builds. These two keys take lists, stored as JSON arrays. Lists are not allowed for any other key. Leave a key out to keep the value set in the dashboard (the defaults are `[evtivity]` and `[com.evtivity.driver]`). An empty list accepts no app.
+
+| Key                              | Values                                                                                                                                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mobile.app.urlSchemes`          | Custom URL schemes of the app brands: lowercase, starting with a letter, then letters, digits, `+`, `.` or `-`. Not `http`, `https`, `javascript`, `data`, `file`, `about`, `blob` or `adyencheckout` |
+| `mobile.app.androidPackageNames` | Android application ids of the app brands: two or more dot-separated segments, each a letter followed by letters, digits or `_`                                                                       |
+
+```yaml
+appSettings:
+  mobile.app.urlSchemes: [evtivity, acme]
+  mobile.app.androidPackageNames: [com.evtivity.driver, com.acme.driver]
+```
+
+The synth applies the same rules as the CSMS validators and the Helm chart.
 
 ## Observability and alerts
 

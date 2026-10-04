@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 export { isValidEnv, loadConfig } from './load.js';
-export type { Config, EnvName, ServiceConfig } from './schema.js';
+export type { AppSettingValue, Config, EnvName, ServiceConfig } from './schema.js';

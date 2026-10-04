@@ -17,7 +17,7 @@ import {
   custom_resources as cr,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import type { Config } from '../config/index.js';
+import type { AppSettingValue, Config } from '../config/index.js';
 import {
   BOOTSTRAP_JS,
   DB_JOB_SH,
@@ -43,7 +43,7 @@ export interface DbJobProps {
   appDbSecret: secretsmanager.ISecret;
   settingsKeySecret: secretsmanager.ISecret;
   initialAdminSecret: secretsmanager.ISecret;
-  settings: Record<string, string | number | boolean>;
+  settings: Record<string, AppSettingValue>;
   /** Internal OCPP URLs that simulator stations connect to. */
   simulator: { ocppUrl: string; ocppTlsUrl: string };
   /** Present when seedDemo.enabled. */

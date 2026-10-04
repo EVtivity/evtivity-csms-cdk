@@ -40,6 +40,33 @@ const SUPPORTED_CURRENCIES = [
 ];
 import { SERVICE_CATALOG, SERVICE_NAMES, type ServiceName } from '../catalog.js';
 
+// The operator's mobile app builds. The API accepts a 3D Secure return URL
+// from the app only when it leads back to one of them. Mirrors the rules of
+// isAppUrlScheme and isAndroidPackageName in the CSMS repo
+// (packages/lib/src/mobile-app.ts), which the Helm chart repeats; the CDK
+// cannot import that package.
+const MOBILE_APP_URL_SCHEMES_KEY = 'mobile.app.urlSchemes';
+const MOBILE_APP_ANDROID_PACKAGES_KEY = 'mobile.app.androidPackageNames';
+// RFC 3986 scheme. Browser schemes would leave the app, and adyencheckout is
+// the Adyen Android SDK scheme, accepted only with a listed application id.
+const APP_URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/;
+const RESERVED_URL_SCHEMES = new Set([
+  'http',
+  'https',
+  'javascript',
+  'data',
+  'file',
+  'about',
+  'blob',
+  'adyencheckout',
+]);
+// Android application id: at least two segments, each starting with a letter.
+const ANDROID_PACKAGE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
+const LIST_SETTING_KEYS = new Set([MOBILE_APP_URL_SCHEMES_KEY, MOBILE_APP_ANDROID_PACKAGES_KEY]);
+
+/** A value in appSettings. Lists are allowed only for the mobile.app.* keys. */
+export type AppSettingValue = string | number | boolean | string[];
+
 const envName = z.enum(['dev', 'qa', 'prod']);
 export type EnvName = z.infer<typeof envName>;
 
@@ -376,7 +403,11 @@ export const configSchema = z
 
     // Values upserted into the settings table on every database job run.
     // Non-secret settings only. Enter credentials in the dashboard.
-    appSettings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+    // Lists only for mobile.app.urlSchemes and mobile.app.androidPackageNames,
+    // stored as JSON arrays.
+    appSettings: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+      .default({}),
 
     // Demo dataset (sites, 2000 stations, operators, drivers, sessions,
     // simulator rows). Runs once after the database job, not on every
@@ -524,6 +555,42 @@ export const configSchema = z
           code: 'custom',
           path: ['appSettings', key],
           message: `moved to ${key.replace('stripe.', 'payments.')}: it applies to every payment provider`,
+        });
+      }
+    }
+    for (const [key, value] of Object.entries(c.appSettings)) {
+      if (LIST_SETTING_KEYS.has(key)) {
+        if (!Array.isArray(value)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['appSettings', key],
+            message:
+              key === MOBILE_APP_URL_SCHEMES_KEY
+                ? 'use a list of the custom URL schemes of your app builds, for example [evtivity]'
+                : 'use a list of the Android application ids of your app builds, for example [com.evtivity.driver]',
+          });
+          continue;
+        }
+        value.forEach((entry, index) => {
+          const valid =
+            key === MOBILE_APP_URL_SCHEMES_KEY
+              ? APP_URL_SCHEME_PATTERN.test(entry) && !RESERVED_URL_SCHEMES.has(entry)
+              : ANDROID_PACKAGE_PATTERN.test(entry);
+          if (valid) return;
+          ctx.addIssue({
+            code: 'custom',
+            path: ['appSettings', key, index],
+            message:
+              key === MOBILE_APP_URL_SCHEMES_KEY
+                ? `${entry} is not an app URL scheme: use the lowercase scheme of the app brand, not http, https or adyencheckout`
+                : `${entry} is not an Android application id, for example com.evtivity.driver`,
+          });
+        });
+      } else if (Array.isArray(value)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `use a string, number, or boolean: lists are allowed only for ${[...LIST_SETTING_KEYS].join(' and ')}`,
         });
       }
     }

@@ -26,7 +26,7 @@ import {
 } from 'aws-cdk-lib';
 import type { Construct, IConstruct } from 'constructs';
 import { SERVICE_CATALOG, SERVICE_NAMES, discoveryName, type ServiceName } from '../catalog.js';
-import type { Config } from '../config/index.js';
+import type { AppSettingValue, Config } from '../config/index.js';
 import { AppService } from '../constructs/app-service.js';
 import { Dashboards } from '../constructs/dashboards.js';
 import { DbJob } from '../constructs/db-job.js';
@@ -125,7 +125,7 @@ export class AppStack extends Stack {
 
     // --- Database job: migrations, roles, admin seed, settings ---
 
-    const settings: Record<string, string | number | boolean> = {
+    const settings: Record<string, AppSettingValue> = {
       's3.bucket': props.appBucketName,
       's3.region': config.region,
       ...config.appSettings,

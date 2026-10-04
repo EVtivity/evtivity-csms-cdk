@@ -109,6 +109,46 @@ void describe('config validation', () => {
     assert.throws(loadWith('appSettings:\n  smtp.passwordEnc: secret\n'), /dashboard/);
   });
 
+  void it('validates the mobile app lists like the CSMS lib', () => {
+    const settings = (local: string): Record<string, unknown> =>
+      (loadWith(local)() as { appSettings: Record<string, unknown> }).appSettings;
+    assert.deepEqual(
+      settings(
+        'appSettings:\n  mobile.app.urlSchemes: [evtivity, acme.charge]\n' +
+          '  mobile.app.androidPackageNames: [com.evtivity.driver, com.acme.app_2]\n',
+      ),
+      {
+        'mobile.app.urlSchemes': ['evtivity', 'acme.charge'],
+        'mobile.app.androidPackageNames': ['com.evtivity.driver', 'com.acme.app_2'],
+      },
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  mobile.app.urlSchemes: []\n'));
+    assert.throws(loadWith('appSettings:\n  mobile.app.urlSchemes: evtivity\n'), /list/);
+    assert.throws(loadWith('appSettings:\n  mobile.app.urlSchemes: [1]\n'), /urlSchemes/);
+    for (const scheme of ['https', 'http', 'adyencheckout', 'javascript', 'Evtivity', '1app']) {
+      assert.throws(
+        loadWith(`appSettings:\n  mobile.app.urlSchemes: [evtivity, ${scheme}]\n`),
+        /not an app URL scheme/,
+        scheme,
+      );
+    }
+    assert.throws(
+      loadWith('appSettings:\n  mobile.app.androidPackageNames: com.evtivity.driver\n'),
+      /list/,
+    );
+    for (const id of ['evtivity', 'com.1acme', 'com..acme', '_com.acme', 'com.acme-app']) {
+      assert.throws(
+        loadWith(`appSettings:\n  mobile.app.androidPackageNames: ["${id}"]\n`),
+        /not an Android application id/,
+        id,
+      );
+    }
+    assert.throws(
+      loadWith('appSettings:\n  company.currency: [EUR]\n'),
+      /lists are allowed only for/,
+    );
+  });
+
   void it('rejects availability zones outside the region', () => {
     assert.throws(
       loadWith('vpc:\n  availabilityZones: [eu-west-1a, eu-west-1b]\n'),
