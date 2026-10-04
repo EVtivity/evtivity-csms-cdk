@@ -240,6 +240,8 @@ for (const env of ENVS) {
         const single = name === 'css';
         assert.equal(dc.MinimumHealthyPercent, single ? 0 : 100, `${name} minimum healthy`);
         assert.equal(dc.MaximumPercent, single ? 100 : 200, `${name} maximum`);
+        // ECS rejects a maximum of 100 percent with Availability Zone rebalancing on.
+        if (single) assert.equal(svc['AvailabilityZoneRebalancing'], 'DISABLED');
       }
     });
 
