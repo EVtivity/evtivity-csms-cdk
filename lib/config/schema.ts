@@ -560,9 +560,19 @@ export const configSchema = z
     }
     const paymentProvider = c.appSettings['payments.provider'];
     const paymentProviders = c.payments.allowSimulatedProvider
-      ? ['none', 'stripe', 'adyen', 'simulated']
-      : ['none', 'stripe', 'adyen'];
-    if (paymentProvider != null && !paymentProviders.includes(String(paymentProvider))) {
+      ? ['none', 'stripe', 'simulated']
+      : ['none', 'stripe'];
+    if (paymentProvider === 'adyen') {
+      // The settings are seeded while tasks of the previous release can still
+      // run; those treat Adyen as payments off. The dashboard select checks
+      // that no older process is connected first.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'payments.provider'],
+        message:
+          'payment provider adyen cannot be set in the config: select Adyen in Settings > Payment after the upgrade',
+      });
+    } else if (paymentProvider != null && !paymentProviders.includes(String(paymentProvider))) {
       ctx.addIssue({
         code: 'custom',
         path: ['appSettings', 'payments.provider'],

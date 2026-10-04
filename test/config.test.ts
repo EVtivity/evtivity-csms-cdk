@@ -111,7 +111,10 @@ void describe('config validation', () => {
   void it('validates the payment provider setting', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: stripe\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: none\n'));
-    assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: adyen\n'));
+    assert.throws(
+      loadWith('appSettings:\n  payments.provider: adyen\n'),
+      /select Adyen in Settings > Payment after the upgrade/,
+    );
     assert.throws(loadWith('appSettings:\n  payments.provider: braintree\n'), /payment provider/);
     assert.throws(loadWith('appSettings:\n  payments.provider: simulated\n'), /payment provider/);
     assert.doesNotThrow(
