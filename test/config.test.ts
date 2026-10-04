@@ -99,7 +99,8 @@ void describe('config validation', () => {
       /whole number/,
     );
     assert.throws(loadWith('appSettings:\n  payments.platformFeePercent: 101\n'), /0 to 100/);
-    assert.throws(loadWith('appSettings:\n  simulated.resultMode: async\n'), /use sync/);
+    assert.doesNotThrow(loadWith('appSettings:\n  simulated.resultMode: async\n'));
+    assert.throws(loadWith('appSettings:\n  simulated.resultMode: later\n'), /use sync or async/);
     assert.throws(loadWith('appSettings:\n  simulated.asyncDelaySeconds: 3601\n'), /0 to 3600/);
     assert.throws(loadWith('appSettings:\n  simulated.randomFailureRate: 1.5\n'), /0 to 1/);
   });

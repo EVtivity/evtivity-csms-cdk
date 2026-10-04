@@ -609,11 +609,15 @@ export const configSchema = z
     numberIssue('simulated.asyncDelaySeconds', 0, 3600, true);
     numberIssue('simulated.randomFailureRate', 0, 1, false);
     const simulatedResultMode = c.appSettings['simulated.resultMode'];
-    if (simulatedResultMode != null && simulatedResultMode !== 'sync') {
+    if (
+      simulatedResultMode != null &&
+      simulatedResultMode !== 'sync' &&
+      simulatedResultMode !== 'async'
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['appSettings', 'simulated.resultMode'],
-        message: 'use sync',
+        message: 'use sync or async',
       });
     }
     // Non-secret Adyen settings, validated like the Helm chart. Credentials go in the dashboard.

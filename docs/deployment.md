@@ -189,13 +189,13 @@ Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which all
 
 These keys are optional. Leave one out to keep the value set in Settings > Payment.
 
-| Key                           | Values                                                             |
-| ----------------------------- | ------------------------------------------------------------------ |
-| `payments.preAuthAmountCents` | Default pre-authorization amount, whole cents from 1 to 1000000    |
-| `payments.platformFeePercent` | Default platform fee, 0 to 100                                     |
-| `simulated.resultMode`        | Test provider result mode: `sync`                                  |
-| `simulated.asyncDelaySeconds` | Test provider delay of async results, whole seconds from 0 to 3600 |
-| `simulated.randomFailureRate` | Test provider failure rate of cards without a scenario, 0 to 1     |
+| Key                           | Values                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| `payments.preAuthAmountCents` | Default pre-authorization amount, whole cents from 1 to 1000000                   |
+| `payments.platformFeePercent` | Default platform fee, 0 to 100                                                    |
+| `simulated.resultMode`        | Test provider result mode: `sync` or `async` (results confirmed later by webhook) |
+| `simulated.asyncDelaySeconds` | Test provider delay of async results, whole seconds from 0 to 3600                |
+| `simulated.randomFailureRate` | Test provider failure rate of cards without a scenario, 0 to 1                    |
 
 `stripe.preAuthAmountCents` and `stripe.platformFeePercent` moved to `payments.*`. The synth rejects the old names. The upgrade copies the stored values to the new settings.
 
