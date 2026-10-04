@@ -63,7 +63,7 @@ One-time steps before the first deploy of this version to an environment that al
 
 `config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides. An empty or comment-only local file is fine.
 
-Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
+Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
 
 Common changes:
 
@@ -183,7 +183,21 @@ Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
 
 ### Simulated payments: `payments.allowSimulatedProvider`
 
-Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which allows the simulated (test) payment provider. It moves no money. Off by default. Prod rejects it. `appSettings['payments.provider']` accepts `none`, `stripe`, and `adyen`, plus `simulated` when this is on.
+Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which allows the simulated (test) payment provider. It moves no money. Off by default. Prod rejects it. `appSettings['payments.provider']` accepts `none` and `stripe`, plus `simulated` when this is on. Select Adyen in Settings > Payment after the upgrade.
+
+### Payment settings in `appSettings`
+
+These keys are optional. Leave one out to keep the value set in Settings > Payment.
+
+| Key                           | Values                                                             |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `payments.preAuthAmountCents` | Default pre-authorization amount, whole cents from 1 to 1000000    |
+| `payments.platformFeePercent` | Default platform fee, 0 to 100                                     |
+| `simulated.resultMode`        | Test provider result mode: `sync`                                  |
+| `simulated.asyncDelaySeconds` | Test provider delay of async results, whole seconds from 0 to 3600 |
+| `simulated.randomFailureRate` | Test provider failure rate of cards without a scenario, 0 to 1     |
+
+`stripe.preAuthAmountCents` and `stripe.platformFeePercent` moved to `payments.*`. The synth rejects the old names. The upgrade copies the stored values to the new settings.
 
 ## Observability and alerts
 

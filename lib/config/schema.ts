@@ -519,6 +519,13 @@ export const configSchema = z
           message: 'removed: the platform runs in one currency, set company.currency',
         });
       }
+      if (key === 'stripe.preAuthAmountCents' || key === 'stripe.platformFeePercent') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `moved to ${key.replace('stripe.', 'payments.')}: it applies to every payment provider`,
+        });
+      }
     }
     const currency = c.appSettings['company.currency'];
     if (currency != null && !SUPPORTED_CURRENCIES.includes(String(currency))) {
@@ -577,6 +584,36 @@ export const configSchema = z
         code: 'custom',
         path: ['appSettings', 'payments.provider'],
         message: `unsupported payment provider ${String(paymentProvider)}: use ${paymentProviders.join(', ')}`,
+      });
+    }
+    // Provider-neutral payment and test provider settings, validated like the Helm chart
+    // and the dashboard (PUT /v1/settings/payments).
+    const numberIssue = (key: string, min: number, max: number, integer: boolean): void => {
+      const value = c.appSettings[key];
+      if (value == null) return;
+      if (
+        typeof value !== 'number' ||
+        (integer && !Number.isInteger(value)) ||
+        value < min ||
+        value > max
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `use ${integer ? 'a whole number' : 'a number'} from ${String(min)} to ${String(max)}`,
+        });
+      }
+    };
+    numberIssue('payments.preAuthAmountCents', 1, 1_000_000, true);
+    numberIssue('payments.platformFeePercent', 0, 100, false);
+    numberIssue('simulated.asyncDelaySeconds', 0, 3600, true);
+    numberIssue('simulated.randomFailureRate', 0, 1, false);
+    const simulatedResultMode = c.appSettings['simulated.resultMode'];
+    if (simulatedResultMode != null && simulatedResultMode !== 'sync') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'simulated.resultMode'],
+        message: 'use sync',
       });
     }
     // Non-secret Adyen settings, validated like the Helm chart. Credentials go in the dashboard.

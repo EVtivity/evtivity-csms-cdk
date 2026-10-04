@@ -72,6 +72,38 @@ void describe('config validation', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  company.currency: EUR\n'));
   });
 
+  void it('rejects the moved stripe payment settings', () => {
+    assert.throws(
+      loadWith('appSettings:\n  stripe.preAuthAmountCents: 5000\n'),
+      /moved to payments.preAuthAmountCents/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  stripe.platformFeePercent: 0\n'),
+      /moved to payments.platformFeePercent/,
+    );
+  });
+
+  void it('validates the payment amount and test provider settings', () => {
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  payments.preAuthAmountCents: 7500\n  payments.platformFeePercent: 2.5\n' +
+          '  simulated.resultMode: sync\n  simulated.asyncDelaySeconds: 0\n' +
+          '  simulated.randomFailureRate: 0.1\n',
+      ),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  payments.preAuthAmountCents: 1000000\n'));
+    assert.throws(loadWith('appSettings:\n  payments.preAuthAmountCents: 0\n'), /1 to 1000000/);
+    assert.throws(loadWith('appSettings:\n  payments.preAuthAmountCents: 12.5\n'), /whole number/);
+    assert.throws(
+      loadWith('appSettings:\n  payments.preAuthAmountCents: "5000"\n'),
+      /whole number/,
+    );
+    assert.throws(loadWith('appSettings:\n  payments.platformFeePercent: 101\n'), /0 to 100/);
+    assert.throws(loadWith('appSettings:\n  simulated.resultMode: async\n'), /use sync/);
+    assert.throws(loadWith('appSettings:\n  simulated.asyncDelaySeconds: 3601\n'), /0 to 3600/);
+    assert.throws(loadWith('appSettings:\n  simulated.randomFailureRate: 1.5\n'), /0 to 1/);
+  });
+
   void it('rejects credentials in appSettings', () => {
     assert.throws(loadWith('appSettings:\n  smtp.passwordEnc: secret\n'), /dashboard/);
   });
