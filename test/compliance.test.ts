@@ -226,6 +226,23 @@ for (const env of ENVS) {
       }
     });
 
+    void it('ECS: the simulator never runs two tasks; other app services roll with overlap', () => {
+      for (const name of Object.keys(config.services) as (keyof typeof config.services)[]) {
+        if (!config.services[name].enabled) continue;
+        const svc = ofType(resources, 'AWS::ECS::Service').find((r) =>
+          JSON.stringify(r['ServiceName']).includes(`-${name}"`),
+        );
+        assert.ok(svc, `${name} service found`);
+        const dc = svc['DeploymentConfiguration'] as {
+          MinimumHealthyPercent: number;
+          MaximumPercent: number;
+        };
+        const single = name === 'css';
+        assert.equal(dc.MinimumHealthyPercent, single ? 0 : 100, `${name} minimum healthy`);
+        assert.equal(dc.MaximumPercent, single ? 100 : 200, `${name} maximum`);
+      }
+    });
+
     void it('Network: observability tasks cannot reach the data stores', () => {
       if (!config.observability.enabled) return;
       const sgsOf = (name: string): string[] => {

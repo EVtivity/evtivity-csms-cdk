@@ -34,6 +34,13 @@ export interface ServiceSpec {
   usesSettingsKey: boolean;
   /** Needs read and write access to the application bucket. */
   usesBucket: boolean;
+  /**
+   * Must never run twice at once: deployments stop the old task before
+   * starting the new one. The simulator connects every station it owns, so
+   * two tasks would connect the same station ids and keep replacing each
+   * other's connections.
+   */
+  singleInstance?: boolean;
 }
 
 export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
@@ -120,6 +127,7 @@ export const SERVICE_CATALOG: Record<ServiceName, ServiceSpec> = {
     usesData: true,
     usesSettingsKey: false,
     usesBucket: false,
+    singleInstance: true,
   },
   ocpiSim: {
     component: 'ocpi-simulator',
