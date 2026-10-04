@@ -58,6 +58,7 @@ One-time steps before the first deploy of this version to an environment that al
 3. Remove `vpc.flowLogRetentionDays` from your config files and `CDK_LOCAL_CONFIG`. Flow logs now go to the logs bucket and follow `storage.logsExpirationDays`.
 4. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
 5. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
+6. Per-service Valkey users (0.1.38): the deploy creates `evtivity/<env>/cache-<service>` and one Valkey user per enabled service, adds them to the user group, and moves each service to its own user. The legacy `cache-app` user and secret stay in this release so tasks that still run the old task definition keep their connection during the deploy. The next release deletes them. Nothing to do by hand.
 
 ## Configuration
 
@@ -92,11 +93,11 @@ Stop a lower environment without deleting it: set `desiredCount: 0` on every ser
 
 Three credentials rotate. The static application keys (JWT, settings encryption, initial admin, Grafana admin) do not (EXC-003).
 
-| Secret                     | Rotated by                                               | Scheme                                                                                           |
-| -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `evtivity/<env>/db-master` | Secrets Manager hosted function (PostgreSQL single user) | Changes the `evtivity_admin` password in place                                                   |
-| `evtivity/<env>/db-app`    | Secrets Manager hosted function (PostgreSQL multi user)  | Alternates between `evtivity_app` and `evtivity_app_clone`, both members of `evtivity_app_group` |
-| `evtivity/<env>/cache-app` | `lambda/valkey-rotation.ts`                              | Keeps the current and new password on the Valkey user at the same time                           |
+| Secret                                        | Rotated by                                                                              | Scheme                                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `evtivity/<env>/db-master`                    | Secrets Manager hosted function (PostgreSQL single user)                                | Changes the `evtivity_admin` password in place                                                   |
+| `evtivity/<env>/db-app`                       | Secrets Manager hosted function (PostgreSQL multi user)                                 | Alternates between `evtivity_app` and `evtivity_app_clone`, both members of `evtivity_app_group` |
+| `evtivity/<env>/cache-<service>`, `cache-app` | `lambda/valkey-rotation.ts` (one function, the user comes from the secret's `user_arn`) | Keeps the current and new password on the Valkey user at the same time                           |
 
 Settings:
 
@@ -104,14 +105,14 @@ Settings:
 rotation:
   enabled: true # false removes the schedules; secrets keep their current values
   databaseDays: 30 # db-master and db-app
-  cacheDays: 30 # cache-app
+  cacheDays: 30 # cache-<service> and cache-app
 ecs:
   redeployEveryDays: 7 # must be shorter than the shortest rotation interval
 ```
 
 ### When rotation runs
 
-| Trigger                                                         | db-master        | db-app                      | cache-app                   |
+| Trigger                                                         | db-master        | db-app                      | cache-*                     |
 | --------------------------------------------------------------- | ---------------- | --------------------------- | --------------------------- |
 | Schedule: every `*Days` since the last rotation                 | Yes              | Yes                         | Yes                         |
 | First deploy with rotation enabled                              | Yes, immediately | No                          | No                          |
@@ -119,11 +120,11 @@ ecs:
 | Any other config change or deploy (image tag, sizing, services) | No               | No                          | No                          |
 | `aws secretsmanager rotate-secret --secret-id <name>`           | Yes              | Yes                         | Yes                         |
 
-db-app and cache-app never rotate as part of a deploy. db-app needs the application role that the database job creates first, and both need running tasks to be replaced before the previous credential is dropped. Only the database job uses db-master, and it reads the secret when it starts, so rotating it during a deploy is safe.
+db-app and the cache secrets never rotate as part of a deploy. db-app needs the application role that the database job creates first, and both need running tasks to be replaced before the previous credential is dropped. Only the database job uses db-master, and it reads the secret when it starts, so rotating it during a deploy is safe.
 
 ### How running tasks pick up new credentials
 
-ECS reads secrets only when a task starts. After a db-app or cache-app rotation, the previous credential stays valid until the next rotation of that secret: the previous database role keeps its password, and the Valkey user keeps both passwords. EventBridge Scheduler forces a new deployment of every service each week (`ecs.redeployEveryDays`), well inside the 30-day interval. The config schema rejects a redeploy interval that is not shorter than the shortest rotation interval.
+ECS reads secrets only when a task starts. After a db-app or cache secret rotation, the previous credential stays valid until the next rotation of that secret: the previous database role keeps its password, and the Valkey user keeps both passwords. EventBridge Scheduler forces a new deployment of every service each week (`ecs.redeployEveryDays`), well inside the 30-day interval. The config schema rejects a redeploy interval that is not shorter than the shortest rotation interval.
 
 ### Failures
 
@@ -133,7 +134,7 @@ A `RotationFailed`, `RotationAbandoned`, or `TestRotationFailed` event for any `
 
 ```bash
 aws secretsmanager rotate-secret --secret-id evtivity/dev/db-app
-aws secretsmanager rotate-secret --secret-id evtivity/dev/cache-app
+aws secretsmanager rotate-secret --secret-id evtivity/dev/cache-api
 # Optional: pick up the new credentials now instead of at the weekly redeploy
 aws ecs update-service --cluster evtivity-dev --service evtivity-dev-api --force-new-deployment
 ```

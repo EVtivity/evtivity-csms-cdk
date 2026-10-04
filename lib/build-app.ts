@@ -90,7 +90,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
       appDbSecret: data.appDbSecret,
       cacheHost: data.cacheHost,
       cachePort: data.cachePort,
-      cacheSecret: data.cacheSecret,
+      cacheSecrets: data.cacheSecrets,
       jwtSecret: data.jwtSecret,
       settingsKeySecret: data.settingsKeySecret,
       initialAdminSecret: data.initialAdminSecret,

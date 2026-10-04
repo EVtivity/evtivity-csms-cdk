@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Secrets Manager rotation function for an ElastiCache Valkey RBAC user.
+// Secrets Manager rotation function for the ElastiCache Valkey RBAC users (one
+// per service, plus the legacy shared user). One function rotates every cache
+// secret; the user comes from the secret's user_arn.
 //
 // An RBAC user may hold two passwords. setSecret gives the user both the
 // current and the pending password, so tasks that started before this
@@ -147,9 +149,18 @@ async function createSecret(secretId: string, token: string): Promise<void> {
   );
 }
 
+/** User id from the secret's user_arn (arn:aws:elasticache:<region>:<account>:user:<id>). */
+export function userIdOf(userArn: string): string {
+  const marker = ':user:';
+  const at = userArn.lastIndexOf(marker);
+  const id = at < 0 ? '' : userArn.slice(at + marker.length);
+  if (id === '' || id.includes(':')) throw new Error(`not an ElastiCache user ARN: ${userArn}`);
+  return id;
+}
+
 async function setSecret(secretId: string, token: string): Promise<void> {
-  const userId = env('CACHE_USER_ID');
   const current = await getSecret(secretId, 'AWSCURRENT');
+  const userId = userIdOf(current.user_arn);
   const pending = await getSecret(secretId, 'AWSPENDING', token);
   const passwords = [...new Set([current.password, pending.password])];
   // Both waits together stay under the 12-minute function timeout. If either

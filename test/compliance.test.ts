@@ -15,6 +15,8 @@ import { Template } from 'aws-cdk-lib/assertions';
 import { buildApp } from '../lib/build-app.js';
 import type { Config, EnvName } from '../lib/config/schema.js';
 import { loadConfig } from '../lib/config/load.js';
+import { SERVICE_CATALOG, SERVICE_NAMES, discoveryName } from '../lib/catalog.js';
+import { enabledCacheUsers, loadRedisAclRules } from '../lib/redis-acl.js';
 import { serviceHost } from '../lib/util.js';
 
 type Resources = Record<string, { Type: string; Properties?: Record<string, unknown> }>;
@@ -497,6 +499,50 @@ for (const env of ENVS) {
       }
     });
 
+    void it('ElastiCache: one least-privilege RBAC user per service, each task uses its own', () => {
+      const users = enabledCacheUsers(config);
+      const rules = loadRedisAclRules();
+      const cacheUsers = ofType(resources, 'AWS::ElastiCache::User');
+      // The service users plus the legacy shared user (removed next release).
+      assert.equal(cacheUsers.length, users.length + 1);
+      for (const user of users) {
+        const u = cacheUsers.find((r) => r['UserName'] === user);
+        assert.ok(u, `Valkey user ${user}`);
+        const access = String(u['AccessString']);
+        assert.equal(access, rules[user]);
+        assert.match(access, /^on /);
+        assert.match(access, / -@dangerous \+info$/);
+        assert.doesNotMatch(access, /(^| )(~\*|&\*|allkeys|allchannels)( |$)/);
+      }
+      const css = cacheUsers.find((r) => r['UserName'] === 'css');
+      if (css != null) assert.doesNotMatch(String(css['AccessString']), /&ocpp_commands/);
+      const [group] = ofType(resources, 'AWS::ElastiCache::UserGroup');
+      assert.equal((group?.['UserIds'] as unknown[]).length, users.length + 1);
+
+      // Each Node service reads REDIS_USER/REDIS_PASSWORD from its own secret,
+      // never from the legacy shared one.
+      let checked = 0;
+      for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
+        const family = String(td['Family']);
+        for (const c of td['ContainerDefinitions'] as (Container & {
+          Secrets?: { Name: string; ValueFrom: unknown }[];
+        })[]) {
+          const redisSecrets = (c.Secrets ?? []).filter((x) => x.Name.startsWith('REDIS_'));
+          if (redisSecrets.length === 0) continue;
+          const service = SERVICE_NAMES.find((n) => family.endsWith(`-${discoveryName(n)}`));
+          const user = service == null ? undefined : SERVICE_CATALOG[service].cacheUser;
+          assert.ok(user, `${family} maps to a Valkey user`);
+          for (const x of redisSecrets) {
+            const ref = JSON.stringify(x.ValueFrom);
+            assert.match(ref, new RegExp(`CacheSecret${user}[0-9A-F]{8}`), `${family} ${x.Name}`);
+            assert.doesNotMatch(ref, /CacheSecret3D9C2383/, `${family} avoids the legacy user`);
+          }
+          checked++;
+        }
+      }
+      assert.equal(checked, users.length, 'every Valkey service has its credentials');
+    });
+
     void it('ECS: private tasks, read-only root, logging, no secrets in env, non-root Node (ECS.2/4/5/8/9/20)', () => {
       for (const svc of ofType(resources, 'AWS::ECS::Service')) {
         const net = svc['NetworkConfiguration'] as {
@@ -706,7 +752,11 @@ for (const env of ENVS) {
     });
 
     void it('Secrets: database and cache credentials rotate (SecretsManager.1)', () => {
-      assert.equal(ofType(resources, 'AWS::SecretsManager::RotationSchedule').length, 3);
+      // Two database secrets, the legacy shared cache user, one cache user per service.
+      assert.equal(
+        ofType(resources, 'AWS::SecretsManager::RotationSchedule').length,
+        3 + enabledCacheUsers(config).length,
+      );
       const hosted = ofType(resources, 'AWS::SecretsManager::RotationSchedule').filter(
         (r) => r['HostedRotationLambda'] != null,
       );
