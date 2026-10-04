@@ -114,6 +114,24 @@ for (const env of ENVS) {
       }
     });
 
+    void it('OCTT: the ocpp service reaches the worker OCSP responder only when configured', () => {
+      const worker = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .find((c) => (c.Environment ?? []).some((e) => e.Name === 'API_BASE_URL'));
+      const env = (worker?.Environment ?? []) as { Name: string; Value?: unknown }[];
+      const url = env.find((e) => e.Name === 'OCTT_OCSP_RESPONDER_URL')?.Value;
+      const ingress7110 = ofType(resources, 'AWS::EC2::SecurityGroupIngress').filter(
+        (r) => Number(r['FromPort']) === 7110,
+      );
+      if (config.octt.ocspResponder) {
+        assert.equal(url, `http://worker.${config.env}.evtivity.internal:7110/ocsp`);
+        assert.equal(ingress7110.length, 1, 'task-to-task ingress on 7110');
+      } else {
+        assert.equal(url, undefined);
+        assert.equal(ingress7110.length, 0);
+      }
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

@@ -82,6 +82,10 @@ seedDemo:
   enabled: false
   revision: 1
   stationLimit: 50
+# Dashboard conformance runs start the OCSP responder in the worker, reached
+# by the ocpp service (TC_C_50, TC_C_51, TC_C_52, TC_M_24).
+octt:
+  ocspResponder: true
 monitoring:
   dashboard: true
   alarms: false

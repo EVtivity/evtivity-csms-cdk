@@ -79,6 +79,7 @@ Hostnames are `<service>.<subdomain>.<apex>`. With `domain.subdomain: dev` the d
 | `services.<name>.hostname`        | Rename a service's hostname                                                          |
 | `seedDemo.enabled`                | Load demo sites, stations, and sessions once (not allowed in prod)                   |
 | `payments.allowSimulatedProvider` | Allow the simulated payment provider (required with `seedDemo`, not allowed in prod) |
+| `octt.ocspResponder`              | Run the OCSP tests of dashboard conformance runs (one worker task)                   |
 | `monitoring.alarmEmail`           | Email address that receives alerts                                                   |
 | `rotation.databaseDays`           | How often database credentials rotate                                                |
 

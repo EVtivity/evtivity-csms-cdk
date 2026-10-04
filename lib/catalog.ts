@@ -150,12 +150,20 @@ export function discoveryName(name: ServiceName): string {
   return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
+/** Port of the OCTT Test System OCSP responder the worker runs during a conformance run. */
+export const OCTT_OCSP_RESPONDER_PORT = 7110;
+
 /** Ports a service accepts from other tasks in the cluster. */
-export function internalPorts(name: ServiceName, ocppTlsPort: number | null): number[] {
+export function internalPorts(
+  name: ServiceName,
+  ocppTlsPort: number | null,
+  octtOcspResponder = false,
+): number[] {
   const spec = SERVICE_CATALOG[name];
   const ports = new Set<number>();
   if (spec.port != null) ports.add(spec.port);
   if (name === 'ocpp' && ocppTlsPort != null) ports.add(ocppTlsPort);
+  if (name === 'worker' && octtOcspResponder) ports.add(OCTT_OCSP_RESPONDER_PORT);
   return [...ports];
 }
 
