@@ -112,9 +112,15 @@ export class AppService extends Construct {
       circuitBreaker: { enable: true, rollback: true },
       enableExecuteCommand: config.ecs.executeCommand,
       // Start the replacement before stopping the old task, so a
-      // single-task service never drops to zero during a deployment.
-      minHealthyPercent: 100,
-      maxHealthyPercent: 200,
+      // single-task service never drops to zero during a deployment. A
+      // single-instance service (the simulator) stops the old task first.
+      // ECS refuses a maximum of 100 percent while Availability Zone
+      // rebalancing is on, and one task has nothing to rebalance.
+      minHealthyPercent: spec.singleInstance === true ? 0 : 100,
+      maxHealthyPercent: spec.singleInstance === true ? 100 : 200,
+      ...(spec.singleInstance === true && {
+        availabilityZoneRebalancing: ecs.AvailabilityZoneRebalancing.DISABLED,
+      }),
       propagateTags: ecs.PropagatedTagSource.SERVICE,
       ...(spec.public && { healthCheckGracePeriod: Duration.seconds(90) }),
       cloudMapOptions: { name: discoveryName(name), dnsTtl: Duration.seconds(10) },
