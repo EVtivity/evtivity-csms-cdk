@@ -237,6 +237,17 @@ export class AppStack extends Stack {
             PORTAL_URL: urls.portal,
             // The ALB sits inside the VPC, so its X-Forwarded-For hop is trusted.
             OCPP_TRUSTED_PROXY_CIDRS: vpc.vpcCidrBlock,
+            // Connection authentication limits; unset keeps the server
+            // defaults (half of DB_POOL_MAX at once, 1000 queued, 10 s wait).
+            ...(config.ocppConnectionAuth.maxConcurrent != null && {
+              OCPP_AUTH_MAX_CONCURRENT: String(config.ocppConnectionAuth.maxConcurrent),
+            }),
+            ...(config.ocppConnectionAuth.maxQueued != null && {
+              OCPP_AUTH_MAX_QUEUED: String(config.ocppConnectionAuth.maxQueued),
+            }),
+            ...(config.ocppConnectionAuth.maxWaitMs != null && {
+              OCPP_AUTH_MAX_WAIT_MS: String(config.ocppConnectionAuth.maxWaitMs),
+            }),
           });
           if (ocppTlsPort != null && config.ocppTls.secretName != null) {
             const tls = secretsmanager.Secret.fromSecretNameV2(

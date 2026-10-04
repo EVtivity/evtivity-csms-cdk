@@ -132,6 +132,35 @@ for (const env of ENVS) {
       }
     });
 
+    void it('OCTT: the worker reaches the api and ocpp services in the VPC', () => {
+      const worker = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .find((c) => (c.Environment ?? []).some((e) => e.Name === 'API_BASE_URL'));
+      if (!config.services.worker.enabled) return;
+      const env = (worker?.Environment ?? []) as { Name: string; Value?: unknown }[];
+      const value = (name: string): unknown => env.find((e) => e.Name === name)?.Value;
+      assert.equal(value('API_BASE_URL'), `http://api.${config.env}.evtivity.internal:3001`);
+      assert.match(
+        String(value('OCPP_SERVER_URL')),
+        new RegExp(`^ws://ocpp\\.${config.env}\\.evtivity\\.internal:8080$`),
+      );
+    });
+
+    void it('OCPP: connection authentication limits are set only when configured', () => {
+      const ocpp = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .find((c) => (c.Environment ?? []).some((e) => e.Name === 'OCPP_TRUSTED_PROXY_CIDRS'));
+      if (!config.services.ocpp.enabled) return;
+      const env = (ocpp?.Environment ?? []) as { Name: string; Value?: unknown }[];
+      const value = (name: string): unknown => env.find((e) => e.Name === name)?.Value;
+      const auth = config.ocppConnectionAuth;
+      const expected = (v: number | undefined): string | undefined =>
+        v == null ? undefined : String(v);
+      assert.equal(value('OCPP_AUTH_MAX_CONCURRENT'), expected(auth.maxConcurrent));
+      assert.equal(value('OCPP_AUTH_MAX_QUEUED'), expected(auth.maxQueued));
+      assert.equal(value('OCPP_AUTH_MAX_WAIT_MS'), expected(auth.maxWaitMs));
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

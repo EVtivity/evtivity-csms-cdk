@@ -250,4 +250,19 @@ void describe('config validation', () => {
   void it('rejects OCPP TLS without its secret', () => {
     assert.throws(loadWith('ocppTls:\n  enabled: true\n'), /secretName/);
   });
+
+  void it('bounds OCPP connection authentications within the database pool', () => {
+    type Auth = { maxConcurrent?: number; maxQueued?: number; maxWaitMs?: number };
+    const auth = (local: string): Auth =>
+      (loadWith(local)() as { ocppConnectionAuth: Auth }).ocppConnectionAuth;
+    assert.deepEqual(auth(''), {});
+    assert.deepEqual(
+      auth('ocppConnectionAuth:\n  maxConcurrent: 4\n  maxQueued: 0\n  maxWaitMs: 5000\n'),
+      { maxConcurrent: 4, maxQueued: 0, maxWaitMs: 5000 },
+    );
+    // dev.yaml has aurora.poolMax 5.
+    assert.throws(loadWith('ocppConnectionAuth:\n  maxConcurrent: 6\n'), /aurora.poolMax/);
+    assert.throws(loadWith('ocppConnectionAuth:\n  maxConcurrent: 0\n'), /maxConcurrent/);
+    assert.throws(loadWith('ocppConnectionAuth:\n  maxWait: 10\n'), /maxWait/);
+  });
 });
