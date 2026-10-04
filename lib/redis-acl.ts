@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // Per-service Valkey users. config/redis-acl-rules.conf is a verbatim copy of
-// evtivity-csms-private docker/redis/acl-rules.conf (synced by that repo's
-// internal-scripts/sync-redis-acl.sh): one "user <name> <rules>" line per
-// service, Redis ACL syntax without "on" or passwords. ElastiCache sets
+// the CSMS repo's docker/redis/acl-rules.conf: one "user <name> <rules>" line
+// per service, Redis ACL syntax without "on" or passwords. ElastiCache sets
 // passwords through the API, so the access string is "on <rules>".
 
 import { readFileSync } from 'node:fs';
