@@ -176,6 +176,41 @@ for (const env of ENVS) {
       }
     });
 
+    void it('ECS: services with an EFS volume start after the mount targets exist', () => {
+      const entries = Object.entries(resources);
+      const fileSystems = new Map<string, string[]>();
+      for (const [id, r] of entries) {
+        if (r.Type !== 'AWS::EFS::MountTarget') continue;
+        const fs = (r.Properties?.['FileSystemId'] as { Ref?: string } | undefined)?.Ref;
+        if (fs != null) fileSystems.set(fs, [...(fileSystems.get(fs) ?? []), id]);
+      }
+      let checked = 0;
+      for (const [id, r] of entries) {
+        if (r.Type !== 'AWS::ECS::TaskDefinition') continue;
+        const volumes =
+          (r.Properties?.['Volumes'] as
+            { EFSVolumeConfiguration?: { FilesystemId?: { Ref?: string } } }[] | undefined) ?? [];
+        const used = volumes
+          .map((v) => v.EFSVolumeConfiguration?.FilesystemId?.Ref)
+          .filter((fs): fs is string => fs != null);
+        if (used.length === 0) continue;
+        const service = entries.find(
+          ([, s]) =>
+            s.Type === 'AWS::ECS::Service' &&
+            (s.Properties?.['TaskDefinition'] as { Ref?: string } | undefined)?.Ref === id,
+        );
+        assert.ok(service, `${id} has a service`);
+        const deps = (service[1] as { DependsOn?: string[] }).DependsOn ?? [];
+        for (const fs of used) {
+          for (const mt of fileSystems.get(fs) ?? []) {
+            assert.ok(deps.includes(mt), `${service[0]} depends on ${mt}`);
+            checked += 1;
+          }
+        }
+      }
+      assert.equal(checked > 0, config.observability.enabled, 'EFS services checked');
+    });
+
     void it('Lambda: every function logs to a managed log group with retention', () => {
       // Otherwise Lambda creates /aws/lambda/<name> on first run with no
       // retention, and it survives stack deletion.

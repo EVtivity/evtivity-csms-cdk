@@ -462,6 +462,12 @@ export class Observability extends Construct {
         healthCheckGracePeriod: Duration.seconds(opts.healthCheckGracePeriodSeconds),
       }),
     });
+    // An access point does not wait for the mount targets, so without this the
+    // first task of a fresh deploy can start before the file system is
+    // reachable and fail with ResourceInitializationError.
+    if (opts.mounts.some((m) => m.kind === 'efs')) {
+      service.node.addDependency(this.fileSystem.mountTargetsAvailable);
+    }
     return { service, taskDefinition, logGroup };
   }
 
