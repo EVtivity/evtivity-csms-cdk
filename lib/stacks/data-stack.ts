@@ -36,8 +36,6 @@ const PASSWORD_EXCLUDE = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\,=^';
 const MASTER_USERNAME = 'evtivity_admin';
 // Application login. Rotation alternates between this role and <name>_clone.
 const APP_USERNAME = 'evtivity_app';
-// Legacy shared Valkey user, unused since the per-service users (removed next release).
-const CACHE_USERNAME = 'evtivity';
 
 /**
  * Aurora PostgreSQL, ElastiCache Valkey, and the application secrets.
@@ -50,8 +48,7 @@ const CACHE_USERNAME = 'evtivity';
  *   valid for one full interval while tasks restart.
  * - `cache-<service>`: one Valkey RBAC user per service, permissions from
  *   config/redis-acl-rules.conf. A custom rotation function keeps the current
- *   and pending passwords active on the user at the same time. `cache-app`
- *   is the legacy shared user, kept unused for one release.
+ *   and pending passwords active on the user at the same time.
  * - `jwt`, `settings-encryption-key`, `initial-admin`: static (EXC-003).
  */
 export class DataStack extends Stack {
@@ -250,43 +247,6 @@ export class DataStack extends Stack {
 
     // --- ElastiCache Valkey ---
 
-    const cacheUserId = `${prefix}-app`;
-    const cacheUserArn = this.formatArn({
-      service: 'elasticache',
-      resource: 'user',
-      resourceName: cacheUserId,
-      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
-    });
-    // Legacy shared user (`cache-app`, `on ~* &* ...`). No service uses it
-    // since the per-service users below. It stays for one release: the user
-    // group update ends the connections of a removed user before AppStack has
-    // replaced the tasks that still use it, and AppStack of the previous
-    // release imports this secret. The next release deletes the user, the
-    // secret, and the exportValue below (docs/todo in the CSMS repo).
-    const legacyCacheSecret = new secretsmanager.Secret(this, 'CacheSecret', {
-      secretName: `${sp}/cache-app`,
-      description: 'Legacy shared Valkey RBAC user (unused, removed in the next release)',
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({ username: CACHE_USERNAME, user_arn: cacheUserArn }),
-        generateStringKey: 'password',
-        passwordLength: 64,
-        excludeCharacters: PASSWORD_EXCLUDE,
-      },
-      removalPolicy: secretRemoval,
-    });
-
-    const cacheUser = new elasticache.CfnUser(this, 'CacheUser', {
-      userId: cacheUserId,
-      userName: CACHE_USERNAME,
-      engine: 'valkey',
-      // Unchanged from the previous release, so tasks still running it keep
-      // working until AppStack replaces them.
-      accessString: 'on ~* &* +@all -@dangerous +info',
-      passwords: [legacyCacheSecret.secretValueFromJson('password').unsafeUnwrap()],
-    });
-    // Keeps the export the previous release's AppStack imports.
-    this.exportValue(legacyCacheSecret.secretArn);
-
     // One Valkey user per service (config/redis-acl-rules.conf): its own keys,
     // channels, and commands, so a leaked credential of one service cannot
     // command stations or touch another service's data. Commands: everything
@@ -294,7 +254,7 @@ export class DataStack extends Stack {
     // BullMQ reads for the server version.
     const aclRules = loadRedisAclRules();
     const serviceUsers: elasticache.CfnUser[] = [];
-    const cacheUserArns = [cacheUserArn];
+    const cacheUserArns: string[] = [];
     for (const user of enabledCacheUsers(config)) {
       const userId = `${prefix}-${user}`;
       const userArn = this.formatArn({
@@ -330,14 +290,16 @@ export class DataStack extends Stack {
       this.cacheSecrets[user] = secret;
       cacheUserArns.push(userArn);
     }
-    const rotatedCacheSecrets = [legacyCacheSecret, ...Object.values(this.cacheSecrets)];
+    if (serviceUsers.length === 0) {
+      // The user group and the rotation function's policy need at least one user.
+      throw new Error('Valkey needs at least one enabled service that uses it');
+    }
 
     const userGroup = new elasticache.CfnUserGroup(this, 'CacheUserGroup', {
       userGroupId: `${prefix}-app`,
       engine: 'valkey',
-      userIds: [cacheUserId, ...serviceUsers.map((u) => u.userId)],
+      userIds: serviceUsers.map((u) => u.userId),
     });
-    userGroup.addResourceDependency(cacheUser);
     for (const u of serviceUsers) userGroup.addResourceDependency(u);
 
     const subnetGroup = new elasticache.CfnSubnetGroup(this, 'ValkeySubnets', {
@@ -431,7 +393,7 @@ export class DataStack extends Stack {
           resources: cacheUserArns,
         }),
       );
-      for (const secret of rotatedCacheSecrets) {
+      for (const secret of Object.values(this.cacheSecrets)) {
         secret.addRotationSchedule('Rotation', {
           rotationLambda: fn,
           automaticallyAfter: Duration.days(config.rotation.cacheDays),

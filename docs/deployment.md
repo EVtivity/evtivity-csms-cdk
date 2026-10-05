@@ -93,11 +93,11 @@ Stop a lower environment without deleting it: set `desiredCount: 0` on every ser
 
 Three credentials rotate. The static application keys (JWT, settings encryption, initial admin, Grafana admin) do not (EXC-003).
 
-| Secret                                        | Rotated by                                                                              | Scheme                                                                                           |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `evtivity/<env>/db-master`                    | Secrets Manager hosted function (PostgreSQL single user)                                | Changes the `evtivity_admin` password in place                                                   |
-| `evtivity/<env>/db-app`                       | Secrets Manager hosted function (PostgreSQL multi user)                                 | Alternates between `evtivity_app` and `evtivity_app_clone`, both members of `evtivity_app_group` |
-| `evtivity/<env>/cache-<service>`, `cache-app` | `lambda/valkey-rotation.ts` (one function, the user comes from the secret's `user_arn`) | Keeps the current and new password on the Valkey user at the same time                           |
+| Secret                           | Rotated by                                                                              | Scheme                                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `evtivity/<env>/db-master`       | Secrets Manager hosted function (PostgreSQL single user)                                | Changes the `evtivity_admin` password in place                                                   |
+| `evtivity/<env>/db-app`          | Secrets Manager hosted function (PostgreSQL multi user)                                 | Alternates between `evtivity_app` and `evtivity_app_clone`, both members of `evtivity_app_group` |
+| `evtivity/<env>/cache-<service>` | `lambda/valkey-rotation.ts` (one function, the user comes from the secret's `user_arn`) | Keeps the current and new password on the Valkey user at the same time                           |
 
 Settings:
 
@@ -105,7 +105,7 @@ Settings:
 rotation:
   enabled: true # false removes the schedules; secrets keep their current values
   databaseDays: 30 # db-master and db-app
-  cacheDays: 30 # cache-<service> and cache-app
+  cacheDays: 30 # cache-<service>
 ecs:
   redeployEveryDays: 7 # must be shorter than the shortest rotation interval
 ```

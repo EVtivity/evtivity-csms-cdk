@@ -604,8 +604,7 @@ for (const env of ENVS) {
       const users = enabledCacheUsers(config);
       const rules = loadRedisAclRules();
       const cacheUsers = ofType(resources, 'AWS::ElastiCache::User');
-      // The service users plus the legacy shared user (removed next release).
-      assert.equal(cacheUsers.length, users.length + 1);
+      assert.equal(cacheUsers.length, users.length);
       for (const user of users) {
         const u = cacheUsers.find((r) => r['UserName'] === user);
         assert.ok(u, `Valkey user ${user}`);
@@ -618,10 +617,9 @@ for (const env of ENVS) {
       const css = cacheUsers.find((r) => r['UserName'] === 'css');
       if (css != null) assert.doesNotMatch(String(css['AccessString']), /&ocpp_commands/);
       const [group] = ofType(resources, 'AWS::ElastiCache::UserGroup');
-      assert.equal((group?.['UserIds'] as unknown[]).length, users.length + 1);
+      assert.equal((group?.['UserIds'] as unknown[]).length, users.length);
 
-      // Each Node service reads REDIS_USER/REDIS_PASSWORD from its own secret,
-      // never from the legacy shared one.
+      // Each Node service reads REDIS_USER/REDIS_PASSWORD from its own secret.
       let checked = 0;
       for (const td of ofType(resources, 'AWS::ECS::TaskDefinition')) {
         const family = String(td['Family']);
@@ -636,7 +634,6 @@ for (const env of ENVS) {
           for (const x of redisSecrets) {
             const ref = JSON.stringify(x.ValueFrom);
             assert.match(ref, new RegExp(`CacheSecret${user}[0-9A-F]{8}`), `${family} ${x.Name}`);
-            assert.doesNotMatch(ref, /CacheSecret3D9C2383/, `${family} avoids the legacy user`);
           }
           checked++;
         }
@@ -853,10 +850,10 @@ for (const env of ENVS) {
     });
 
     void it('Secrets: database and cache credentials rotate (SecretsManager.1)', () => {
-      // Two database secrets, the legacy shared cache user, one cache user per service.
+      // Two database secrets, one cache user per service.
       assert.equal(
         ofType(resources, 'AWS::SecretsManager::RotationSchedule').length,
-        3 + enabledCacheUsers(config).length,
+        2 + enabledCacheUsers(config).length,
       );
       const hosted = ofType(resources, 'AWS::SecretsManager::RotationSchedule').filter(
         (r) => r['HostedRotationLambda'] != null,
