@@ -792,6 +792,12 @@ for (const env of ENVS) {
         ...((cert.Properties?.['SubjectAlternativeNames'] as string[] | undefined) ?? []),
       ];
       for (const name of names) assert.ok(!name.includes('*'), `${name} is not a wildcard`);
+      const domain = templates['domain']?.toJSON() as { Resources?: Resources };
+      assert.equal(
+        ofType(domain.Resources ?? {}, 'AWS::CertificateManager::Certificate').length,
+        0,
+        'the Domain stack holds no certificate',
+      );
 
       if (config.services.ocpp.enabled) assert.equal(commonName, serviceHost(config, 'ocpp'));
       // Every DNS record on the ALB is covered. The OCPP TLS record points at

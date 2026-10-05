@@ -12,7 +12,7 @@
 | Stack                    | Contents                                                                                    |
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `Evtivity-<Env>-Network` | VPC, NAT (fck-nat or gateway), flow logs, S3 gateway endpoint, ALB/task/NLB security groups |
-| `Evtivity-<Env>-Domain`  | Hosted zone reference. Holds the superseded wildcard certificate until the next release     |
+| `Evtivity-<Env>-Domain`  | Hosted zone reference                                                                       |
 | `Evtivity-<Env>-Storage` | Logs bucket (ALB, S3 access, and VPC flow logs), app bucket, Grafana bucket                 |
 | `Evtivity-<Env>-Data`    | Aurora PostgreSQL, Valkey, secrets, rotation                                                |
 | `Evtivity-<Env>-Alb`     | ALB, listeners, ACM certificate naming each service host exactly (no wildcard), WAF         |
@@ -59,6 +59,7 @@ One-time steps before the first deploy of this version to an environment that al
 4. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
 5. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
 6. Per-service Valkey users (0.1.38): the deploy creates `evtivity/<env>/cache-<service>` and one Valkey user per enabled service, adds them to the user group, and moves each service to its own user. The legacy `cache-app` user and secret stay in this release so tasks that still run the old task definition keep their connection during the deploy. The next release deletes them. Nothing to do by hand.
+7. Legacy cleanup (0.1.39): deploy 0.1.38 first. From an earlier release, the update fails and rolls back, because the older App or Alb stack still imports an export this release deletes. The deploy deletes the legacy shared Valkey user, its `evtivity/<env>/cache-app` secret and rotation schedule, and the superseded wildcard ACM certificate of the Domain stack, together with their stack exports. With `secrets.removal: retain` (prod) the `cache-app` secret stays in Secrets Manager: delete it by hand (`aws secretsmanager delete-secret --secret-id evtivity/<env>/cache-app`). CloudFormation leaves the wildcard certificate's DNS validation CNAME record in the hosted zone. It is harmless, and you can delete it when no other ACM certificate in the account names the zone apex.
 
 ## Configuration
 
