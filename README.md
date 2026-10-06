@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/ci.yml"><img src="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/release.yml"><img src="https://github.com/EVtivity/evtivity-csms-cdk/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <a href="https://github.com/EVtivity/evtivity-csms-cdk/releases/latest"><img src="https://img.shields.io/github/v/release/EVtivity/evtivity-csms-cdk?label=Release&color=4ade80" alt="Release" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
   <img src="https://img.shields.io/badge/AWS%20CDK-v2-FF9900.svg?logo=amazonwebservices&logoColor=white" alt="AWS CDK v2" />
   <img src="https://img.shields.io/badge/Node.js-22%2B-339933.svg?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
