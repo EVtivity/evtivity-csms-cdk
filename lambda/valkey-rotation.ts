@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // Secrets Manager rotation function for the ElastiCache Valkey RBAC users (one
-// per service, plus the legacy shared user). One function rotates every cache
-// secret; the user comes from the secret's user_arn.
+// per service). One function rotates every cache secret; the user comes from
+// the secret's user_arn.
 //
 // An RBAC user may hold two passwords. setSecret gives the user both the
 // current and the pending password, so tasks that started before this

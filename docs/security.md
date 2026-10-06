@@ -25,16 +25,15 @@ The only customer-managed KMS key encrypts the alerts topic. CloudWatch alarms a
 
 ## Credentials
 
-| Secret                                   | Used by                                            | Rotation                                                               |
-| ---------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
-| `evtivity/<env>/db-master`               | Database job only                                  | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
-| `evtivity/<env>/db-app`                  | Every service                                      | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
-| `evtivity/<env>/cache-<service>`         | That service (api, ocpp, ocpi, worker, css)        | Custom function keeps current and pending passwords on the Valkey user |
-| `evtivity/<env>/cache-app`               | Nothing (legacy shared user, removed next release) | Same as `cache-<service>`                                              |
-| `evtivity/<env>/jwt`                     | API                                                | Static (EXC-003)                                                       |
-| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, demo seed                 | Static (EXC-003)                                                       |
-| `evtivity/<env>/initial-admin`           | Database job                                       | Static; the admin must change the password at first sign-in (EXC-003)  |
-| `evtivity/<env>/grafana-admin`           | Grafana                                            | Static (EXC-003)                                                       |
+| Secret                                   | Used by                                     | Rotation                                                               |
+| ---------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
+| `evtivity/<env>/db-master`               | Database job only                           | Single-user, every `rotation.databaseDays` (AWS hosted function)       |
+| `evtivity/<env>/db-app`                  | Every service                               | Multi-user alternating (`evtivity_app` / `evtivity_app_clone`)         |
+| `evtivity/<env>/cache-<service>`         | That service (api, ocpp, ocpi, worker, css) | Custom function keeps current and pending passwords on the Valkey user |
+| `evtivity/<env>/jwt`                     | API                                         | Static (EXC-003)                                                       |
+| `evtivity/<env>/settings-encryption-key` | API, OCPP, OCPI, worker, demo seed          | Static (EXC-003)                                                       |
+| `evtivity/<env>/initial-admin`           | Database job                                | Static; the admin must change the password at first sign-in (EXC-003)  |
+| `evtivity/<env>/grafana-admin`           | Grafana                                     | Static (EXC-003)                                                       |
 
 How rotated credentials reach running tasks:
 

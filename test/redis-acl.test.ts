@@ -5,8 +5,12 @@
 // line must fail the synth instead of creating a user with the wrong rights.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { App } from 'aws-cdk-lib';
 import { userIdOf } from '../lambda/valkey-rotation.js';
+import { buildApp } from '../lib/build-app.js';
+import { SERVICE_CATALOG, SERVICE_NAMES } from '../lib/catalog.js';
 import { loadConfig } from '../lib/config/load.js';
 import {
   CACHE_USERS,
@@ -62,6 +66,24 @@ void describe('redis ACL rules', () => {
       services: { ...config.services, css: { ...config.services.css, enabled: false } },
     });
     assert.ok(!noCss.includes('css'));
+  });
+
+  void it('refuses a Valkey user group without a service user', () => {
+    const config = loadConfig('dev', 'config', { includeLocal: false });
+    const services = { ...config.services };
+    for (const name of SERVICE_NAMES) {
+      if (SERVICE_CATALOG[name].cacheUser != null) {
+        services[name] = { ...services[name], enabled: false };
+      }
+    }
+    const context = (
+      JSON.parse(readFileSync('cdk.json', 'utf8')) as { context: Record<string, unknown> }
+    ).context;
+    const app = new App({ context: { ...context, 'aws:cdk:bundling-stacks': [] } });
+    assert.throws(
+      () => buildApp(app, { ...config, services }, '2026-01-01'),
+      /Valkey needs at least one enabled service/,
+    );
   });
 
   void it('rotation reads the user id from the secret user_arn', () => {

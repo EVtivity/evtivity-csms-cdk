@@ -135,10 +135,7 @@ function stackDescriptions(config: Config): Record<keyof EvtivityStacks, string>
       'flow logs',
       'security groups',
     ]),
-    domain: list([
-      'Route 53 hosted zone reference',
-      'superseded wildcard ACM certificate, removed in the next release',
-    ]),
+    domain: list(['Route 53 hosted zone reference']),
     storage: list([
       'S3 buckets for load balancer access logs',
       'application files',
