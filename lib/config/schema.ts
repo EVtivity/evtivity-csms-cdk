@@ -725,6 +725,8 @@ export const configSchema = z
     numberIssue('payments.platformFeePercent', 0, 100, false);
     numberIssue('simulated.asyncDelaySeconds', 0, 3600, true);
     numberIssue('simulated.randomFailureRate', 0, 1, false);
+    // The prepaid low credit notice threshold, validated like the Helm chart and the API.
+    numberIssue('prepaid.lowCreditThresholdCents', 0, 100_000_000, true);
     const simulatedResultMode = c.appSettings['simulated.resultMode'];
     if (
       simulatedResultMode != null &&

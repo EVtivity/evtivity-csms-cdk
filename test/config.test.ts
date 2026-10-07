@@ -103,6 +103,15 @@ void describe('config validation', () => {
     assert.throws(loadWith('appSettings:\n  simulated.resultMode: later\n'), /use sync or async/);
     assert.throws(loadWith('appSettings:\n  simulated.asyncDelaySeconds: 3601\n'), /0 to 3600/);
     assert.throws(loadWith('appSettings:\n  simulated.randomFailureRate: 1.5\n'), /0 to 1/);
+    assert.doesNotThrow(loadWith('appSettings:\n  prepaid.lowCreditThresholdCents: 0\n'));
+    assert.throws(
+      loadWith('appSettings:\n  prepaid.lowCreditThresholdCents: -1\n'),
+      /0 to 100000000/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  prepaid.lowCreditThresholdCents: 2.5\n'),
+      /whole number/,
+    );
   });
 
   void it('rejects credentials in appSettings', () => {
