@@ -116,11 +116,11 @@ void describe('config validation', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  invoice.paymentTermsDays: 365\n'));
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 366\n'), /0 to 365/);
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 7.5\n'), /whole number/);
-    assert.doesNotThrow(loadWith('appSettings:\n  fleetBilling.monthlyRunDay: 1\n'));
-    assert.doesNotThrow(loadWith('appSettings:\n  fleetBilling.monthlyRunDay: 28\n'));
-    assert.throws(loadWith('appSettings:\n  fleetBilling.monthlyRunDay: 0\n'), /1 to 28/);
-    assert.throws(loadWith('appSettings:\n  fleetBilling.monthlyRunDay: 29\n'), /1 to 28/);
-    assert.throws(loadWith('appSettings:\n  fleetBilling.monthlyRunDay: 2.5\n'), /whole number/);
+    assert.doesNotThrow(loadWith('appSettings:\n  fleet.invoiceRunDay: 1\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  fleet.invoiceRunDay: 28\n'));
+    assert.throws(loadWith('appSettings:\n  fleet.invoiceRunDay: 0\n'), /1 to 28/);
+    assert.throws(loadWith('appSettings:\n  fleet.invoiceRunDay: 29\n'), /1 to 28/);
+    assert.throws(loadWith('appSettings:\n  fleet.invoiceRunDay: 2.5\n'), /whole number/);
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: "30"\n'), /whole number/);
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 1\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 100000000\n'));
