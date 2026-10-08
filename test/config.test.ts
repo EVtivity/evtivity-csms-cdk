@@ -117,6 +117,14 @@ void describe('config validation', () => {
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 366\n'), /0 to 365/);
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 7.5\n'), /whole number/);
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: "30"\n'), /whole number/);
+    assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 1\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 100000000\n'));
+    assert.throws(loadWith('appSettings:\n  fleet.creditReservationCents: 0\n'), /1 to 100000000/);
+    assert.throws(loadWith('appSettings:\n  fleet.creditReservationCents: 50.5\n'), /whole number/);
+    assert.throws(
+      loadWith('appSettings:\n  fleet.creditReservationCents: "5000"\n'),
+      /whole number/,
+    );
   });
 
   void it('rejects credentials in appSettings', () => {
