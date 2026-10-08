@@ -729,6 +729,8 @@ export const configSchema = z
     numberIssue('prepaid.lowCreditThresholdCents', 0, 100_000_000, true);
     // Days from issue to the due date of a new invoice, validated like the Helm chart and the API.
     numberIssue('invoice.paymentTermsDays', 0, 365, true);
+    // Day of the month of the monthly fleet invoice run, validated like the Helm chart and the API.
+    numberIssue('fleetBilling.monthlyRunDay', 1, 28, true);
     // Fleet credit an account session reserves per slice, validated like the Helm chart and the API.
     numberIssue('fleet.creditReservationCents', 1, 100_000_000, true);
     const simulatedResultMode = c.appSettings['simulated.resultMode'];
