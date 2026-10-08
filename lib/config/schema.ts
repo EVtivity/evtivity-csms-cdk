@@ -727,6 +727,8 @@ export const configSchema = z
     numberIssue('simulated.randomFailureRate', 0, 1, false);
     // The prepaid low credit notice threshold, validated like the Helm chart and the API.
     numberIssue('prepaid.lowCreditThresholdCents', 0, 100_000_000, true);
+    // Days from issue to the due date of a new invoice, validated like the Helm chart and the API.
+    numberIssue('invoice.paymentTermsDays', 0, 365, true);
     const simulatedResultMode = c.appSettings['simulated.resultMode'];
     if (
       simulatedResultMode != null &&

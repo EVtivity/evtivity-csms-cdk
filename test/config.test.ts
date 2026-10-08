@@ -112,6 +112,11 @@ void describe('config validation', () => {
       loadWith('appSettings:\n  prepaid.lowCreditThresholdCents: 2.5\n'),
       /whole number/,
     );
+    assert.doesNotThrow(loadWith('appSettings:\n  invoice.paymentTermsDays: 0\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  invoice.paymentTermsDays: 365\n'));
+    assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 366\n'), /0 to 365/);
+    assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: 7.5\n'), /whole number/);
+    assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: "30"\n'), /whole number/);
   });
 
   void it('rejects credentials in appSettings', () => {
