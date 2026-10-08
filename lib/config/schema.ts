@@ -92,6 +92,12 @@ const logRetentionDays = z
 
 const envMap = z.record(z.string(), z.string()).default({});
 
+/** Env vars of the CSMS notification test sink, refused in every environment. */
+const NOTIFICATION_TEST_SINK_VARS = [
+  'NOTIFICATIONS_ALLOW_TEST_SINK',
+  'NOTIFICATIONS_TEST_SINK_URL',
+] as const;
+
 const autoscaling = z
   .strictObject({
     min: z.number().int().min(0),
@@ -504,6 +510,22 @@ export const configSchema = z
     services: servicesSchema,
   })
   .superRefine((c, ctx) => {
+    // The notification test sink sends driver SMS and push to a local dev
+    // service instead of Twilio and Expo. It is for the local stack only, so no
+    // environment (prod, qa or dev) may set it, enabled service or not.
+    for (const name of SERVICE_NAMES) {
+      for (const block of ['env', 'secrets'] as const) {
+        for (const key of NOTIFICATION_TEST_SINK_VARS) {
+          if (key in c.services[name][block]) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['services', name, block, key],
+              message: `${key} is not allowed: the notification test sink is for the local development stack only`,
+            });
+          }
+        }
+      }
+    }
     for (const name of SERVICE_NAMES) {
       const sc = c.services[name];
       if (!sc.enabled) continue;

@@ -292,4 +292,32 @@ void describe('config validation', () => {
     assert.throws(loadWith('ocppConnectionAuth:\n  maxConcurrent: 0\n'), /maxConcurrent/);
     assert.throws(loadWith('ocppConnectionAuth:\n  maxWait: 10\n'), /maxWait/);
   });
+
+  void it('refuses the notification test sink in every service and environment', () => {
+    for (const service of ['api', 'ocpp', 'worker', 'ocpi']) {
+      assert.throws(
+        loadWith(
+          `services:\n  ${service}:\n    env:\n      NOTIFICATIONS_ALLOW_TEST_SINK: 'true'\n`,
+        ),
+        /NOTIFICATIONS_ALLOW_TEST_SINK is not allowed/,
+      );
+      assert.throws(
+        loadWith(
+          `services:\n  ${service}:\n    env:\n      NOTIFICATIONS_TEST_SINK_URL: http://sink:8080\n`,
+        ),
+        /NOTIFICATIONS_TEST_SINK_URL is not allowed/,
+      );
+    }
+    assert.throws(
+      loadWith('services:\n  api:\n    secrets:\n      NOTIFICATIONS_TEST_SINK_URL: sink-url\n'),
+      /NOTIFICATIONS_TEST_SINK_URL is not allowed/,
+    );
+    // A disabled service is refused too, so enabling it later cannot slip the sink in.
+    assert.throws(
+      loadWith(
+        "services:\n  ocpiSim:\n    enabled: false\n    env:\n      NOTIFICATIONS_ALLOW_TEST_SINK: 'false'\n",
+      ),
+      /NOTIFICATIONS_ALLOW_TEST_SINK is not allowed/,
+    );
+  });
 });

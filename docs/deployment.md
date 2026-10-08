@@ -187,6 +187,10 @@ Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
 
 Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which allows the simulated (test) payment provider. It moves no money. Off by default. Prod rejects it. `appSettings['payments.provider']` accepts `none` and `stripe`, plus `simulated` when this is on. Select Adyen in Settings > Payment after the upgrade.
 
+### Notification test sink: refused
+
+`NOTIFICATIONS_ALLOW_TEST_SINK` and `NOTIFICATIONS_TEST_SINK_URL` send driver SMS and push to a local development service instead of Twilio and Expo. They are for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets either one, in every environment. The services also refuse them under `NODE_ENV=production`, which the stack sets.
+
 ### Conformance OCSP responder: `octt.ocspResponder`
 
 Conformance (OCTT) runs started from the dashboard run in the worker. With this on, the worker starts the Test System OCSP responder on port 7110 during a run, `OCTT_OCSP_RESPONDER_URL` points the test certificates at `http://worker.<env>.evtivity.internal:7110/ocsp`, and the ocpp service may reach that port. The run adds the worker host to `pnc.ocsp.allowedPrivateHosts` while it runs. Off by default (TC_C_50, TC_C_51, TC_C_52, and TC_M_24 are then skipped). It needs exactly one worker task, so the synth fails with `services.worker.desiredCount` above 1 or autoscaling. dev turns it on.
