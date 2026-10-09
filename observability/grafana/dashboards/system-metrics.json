@@ -782,6 +782,7 @@
     {
       "type": "stat",
       "title": "Connected Stations",
+      "description": "Stations connected via WebSocket, summed over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 43 },
       "id": 31,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -817,6 +818,7 @@
     {
       "type": "stat",
       "title": "Avg Ping Latency",
+      "description": "Average ping latency over all OCPP servers, weighted by connected stations. Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 43 },
       "id": 32,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -852,6 +854,7 @@
     {
       "type": "stat",
       "title": "Max Ping Latency",
+      "description": "Highest ping latency of any OCPP server. Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 43 },
       "id": 33,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -887,6 +890,7 @@
     {
       "type": "gauge",
       "title": "Ping Success Rate",
+      "description": "Pongs received over pings sent, over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 43 },
       "id": 34,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -923,20 +927,26 @@
     {
       "type": "timeseries",
       "title": "Connected Stations Over Time",
+      "description": "All: stations summed over all OCPP servers. One series per OCPP server (pod name or ECS task). Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 47 },
       "id": 35,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "max(ocpp_connected_stations)",
-          "legendFormat": "Connected",
+          "legendFormat": "All",
           "refId": "A"
+        },
+        {
+          "expr": "max by (ocpp_instance) (ocpp_instance_connected_stations)",
+          "legendFormat": "{{ocpp_instance}}",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "color": { "mode": "fixed", "fixedColor": "green" },
+          "color": { "mode": "palette-classic" },
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
@@ -955,6 +965,7 @@
     {
       "type": "timeseries",
       "title": "Ping Latency Over Time",
+      "description": "Average (weighted by connected stations) and highest ping latency over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
       "gridPos": { "h": 6, "w": 12, "x": 12, "y": 47 },
       "id": 36,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
