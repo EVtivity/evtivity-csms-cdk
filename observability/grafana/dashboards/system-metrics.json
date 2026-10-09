@@ -120,7 +120,7 @@
       "targets": [
         {
           "expr": "http_active_requests",
-          "legendFormat": "active",
+          "legendFormat": "Active requests · {{instance}}",
           "refId": "A"
         }
       ],
@@ -225,7 +225,7 @@
       "targets": [
         {
           "expr": "topk(10, sum(rate(http_request_duration_seconds_sum[5m])) by (route) / sum(rate(http_request_duration_seconds_count[5m])) by (route))",
-          "legendFormat": "{{ route }}",
+          "legendFormat": "Avg · {{route}}",
           "refId": "A"
         }
       ],
@@ -270,7 +270,7 @@
       "targets": [
         {
           "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
-          "legendFormat": "{{ status_code }}",
+          "legendFormat": "HTTP {{status_code}}",
           "refId": "A"
         }
       ],
@@ -374,12 +374,12 @@
       "targets": [
         {
           "expr": "nodejs_heap_size_used_bytes",
-          "legendFormat": "Heap Used",
+          "legendFormat": "Heap used · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "nodejs_heap_size_total_bytes",
-          "legendFormat": "Heap Total",
+          "legendFormat": "Heap total · {{instance}}",
           "refId": "B"
         }
       ],
@@ -424,7 +424,7 @@
       "targets": [
         {
           "expr": "process_resident_memory_bytes",
-          "legendFormat": "RSS",
+          "legendFormat": "RSS · {{instance}}",
           "refId": "A"
         }
       ],
@@ -477,7 +477,7 @@
       "targets": [
         {
           "expr": "nodejs_eventloop_lag_seconds",
-          "legendFormat": "Event Loop Lag",
+          "legendFormat": "Event loop lag · {{instance}}",
           "refId": "A"
         }
       ],
@@ -530,7 +530,7 @@
       "targets": [
         {
           "expr": "rate(nodejs_gc_duration_seconds_sum[5m])",
-          "legendFormat": "{{ kind }}",
+          "legendFormat": "GC {{kind}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -575,12 +575,12 @@
       "targets": [
         {
           "expr": "nodejs_active_handles_total",
-          "legendFormat": "Active Handles",
+          "legendFormat": "Active handles · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "nodejs_active_requests_total",
-          "legendFormat": "Active Requests",
+          "legendFormat": "Active requests · {{instance}}",
           "refId": "B"
         }
       ],
@@ -633,7 +633,7 @@
       "targets": [
         {
           "expr": "rate(process_cpu_seconds_total[5m])",
-          "legendFormat": "CPU Usage",
+          "legendFormat": "CPU · {{instance}}",
           "refId": "A"
         }
       ],
@@ -686,12 +686,12 @@
       "targets": [
         {
           "expr": "process_open_fds",
-          "legendFormat": "Open FDs",
+          "legendFormat": "Open FDs · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "process_max_fds",
-          "legendFormat": "Max FDs",
+          "legendFormat": "Max FDs · {{instance}}",
           "refId": "B"
         }
       ],
@@ -743,7 +743,7 @@
       "targets": [
         {
           "expr": "max(ocpp_connected_stations)",
-          "legendFormat": "",
+          "legendFormat": "Connected stations",
           "refId": "A",
           "instant": true
         }
@@ -778,7 +778,7 @@
       "targets": [
         {
           "expr": "max(ocpp_ping_latency_avg_ms)",
-          "legendFormat": "",
+          "legendFormat": "Avg ping",
           "refId": "A",
           "instant": true
         }
@@ -813,7 +813,7 @@
       "targets": [
         {
           "expr": "max(ocpp_ping_latency_max_ms)",
-          "legendFormat": "",
+          "legendFormat": "Max ping",
           "refId": "A",
           "instant": true
         }
@@ -848,7 +848,7 @@
       "targets": [
         {
           "expr": "max(ocpp_ping_success_rate)",
-          "legendFormat": "",
+          "legendFormat": "Ping success rate",
           "refId": "A",
           "instant": true
         }

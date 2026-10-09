@@ -132,7 +132,7 @@
       "targets": [
         {
           "expr": "process_resident_memory_bytes / 1024 / 1024",
-          "legendFormat": "RSS (MB)",
+          "legendFormat": "RSS (MB) · {{instance}}",
           "refId": "A"
         }
       ],
@@ -246,7 +246,7 @@
       "targets": [
         {
           "expr": "http_active_requests",
-          "legendFormat": "in-flight",
+          "legendFormat": "In-flight · {{instance}}",
           "refId": "A"
         }
       ],
