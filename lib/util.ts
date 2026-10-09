@@ -92,3 +92,8 @@ export function grafanaBucketName(config: Config): string {
 export function grafanaHost(config: Config): string {
   return `${config.observability.grafana.hostname}.${zoneApex(config)}`;
 }
+
+/** SSM parameter with the NAT ids, written by the Network stack and read by the App stack. */
+export function natIdsParameterName(config: Config): string {
+  return `/${secretPrefix(config)}/network/nat-ids`;
+}

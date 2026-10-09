@@ -20,3 +20,6 @@ initialAdmin:
 # ocppTls:
 #   enabled: true
 #   secretName: evtivity/dev/ocpp-tls
+
+# Production sizing and topology for a load test (docs/deployment.md#sizing-preset-sizing-prod).
+# sizing: prod

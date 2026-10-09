@@ -17,7 +17,12 @@ if (envContext == null || !isValidEnv(envContext)) {
   );
 }
 
-const config = loadConfig(envContext);
+// --context sizing=prod gives a lower environment the prod sizing and
+// topology (lib/config/sizing.ts). It wins over the config files.
+const sizingContext = app.node.tryGetContext('sizing') as string | undefined;
+const config = loadConfig(envContext, 'config', {
+  ...(sizingContext != null && { sizing: sizingContext }),
+});
 
 // UpdatedDate is the UTC day of the synth. Pass --context updatedDate=YYYY-MM-DD
 // to reproduce an earlier synth exactly (for example when diffing).

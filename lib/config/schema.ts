@@ -39,6 +39,7 @@ const SUPPORTED_CURRENCIES = [
   'IDR',
 ];
 import { SERVICE_CATALOG, SERVICE_NAMES, type ServiceName } from '../catalog.js';
+import { SIZING_PRESETS } from './sizing.js';
 
 // The operator's mobile app builds. The API accepts a 3D Secure return URL
 // from the app only when it leads back to one of them. Mirrors the rules of
@@ -165,6 +166,13 @@ export const configSchema = z
     account: z.string().regex(/^\d{12}$/, 'AWS account must be 12 digits'),
     region: z.string().default('us-east-1'),
 
+    // Sizing preset. `prod` gives this environment the sizing and topology of
+    // config/prod.yaml (services, Aurora, Valkey, NAT, interface endpoints,
+    // WAF limits, Container Insights) and keeps its own identity and safety
+    // settings. Values in <env>.local.yaml still win. Also set with
+    // `--context sizing=prod`. See lib/config/sizing.ts and docs/deployment.md.
+    sizing: z.enum(SIZING_PRESETS).optional(),
+
     // Container images. Services resolve `<registry>/<component>:<tag>`.
     image: z.strictObject({
       registry: z.string().default('ghcr.io/evtivity/evtivity-csms'),
@@ -283,6 +291,11 @@ export const configSchema = z
       engineVersion: z.string().default('8.2'),
       nodeType: z.string().default('cache.t4g.micro'),
       replicas: z.number().int().min(0).max(5).default(0),
+      // Automatic failover and Multi-AZ. Unset: on when replicas > 0. An
+      // existing single node cannot get a replica and Multi-AZ in one update,
+      // so add replicas with multiAz: false first, then remove the override
+      // (docs/deployment.md#valkey-replicas).
+      multiAz: z.boolean().optional(),
       snapshotRetentionDays: z.number().int().min(1).max(35).default(1),
       snapshotWindow: z.string().optional(),
       maintenanceWindow: z.string().optional(),
@@ -812,6 +825,13 @@ export const configSchema = z
         code: 'custom',
         path: ['aurora', 'maxCapacity'],
         message: 'must be >= minCapacity',
+      });
+    }
+    if (c.valkey.multiAz === true && c.valkey.replicas === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['valkey', 'multiAz'],
+        message: 'needs valkey.replicas of 1 or more',
       });
     }
     if (c.vpc.nat.mode === 'fck-nat' && c.vpc.nat.amiIds[c.region] == null) {

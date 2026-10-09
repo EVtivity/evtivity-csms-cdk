@@ -135,6 +135,8 @@ With `monitoring.alarms: true`:
 - Valkey memory and engine CPU on every node
 - NAT instance status checks, or NAT gateway port exhaustion
 
+The NAT alarms and dashboard widgets take the NAT ids from the SSM parameter `/evtivity/<env>/network/nat-ids`, read on each App stack deploy. After the NAT changes, deploy the App stack so they follow the new ids ([deployment.md](deployment.md#changing-nat)).
+
 The NAT instance also recovers without anyone subscribed: EC2 moves it to new hardware after a host failure (automatic recovery), and an alarm reboots it when it stops responding.
 
 ## Configuration
@@ -150,6 +152,8 @@ The NAT instance also recovers without anyone subscribed: EC2 moves it to new ha
 | `monitoring.alarms`                                      | `true`     | The CloudWatch alarms listed above                          |
 | `monitoring.alarmEmail`                                  | none       | Subscribes an address to the alerts topic                   |
 | `logs.retentionDays`                                     | `30`       | CloudWatch log groups, which Grafana's logs dashboard reads |
+
+With the prod sizing preset (`sizing: prod`, [deployment.md](deployment.md#sizing-preset-sizing-prod)), a lower environment gets prod's Container Insights setting and Grafana and Prometheus task sizes, and keeps its own `monitoring.alarms`, `monitoring.dashboard`, and log retention. Benchmarks on dev usually leave alarms off.
 
 ## Network
 

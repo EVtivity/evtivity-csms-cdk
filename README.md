@@ -38,6 +38,8 @@ Three environments come ready to use. Each is one file in `config/`, and every v
 
 Estimated monthly costs for each environment are in [`docs/cost-report.md`](docs/cost-report.md).
 
+For a load test or benchmark, `sizing: prod` in `config/dev.local.yaml` (or `--context sizing=prod`) gives dev the sizing and topology of `config/prod.yaml` and keeps dev's account, names, domain, and removal policies. See [Sizing preset](docs/deployment.md#sizing-preset-sizing-prod).
+
 ## Prerequisites
 
 - An AWS account and credentials for it (`aws sso login --profile <name>` or an access key profile)
@@ -80,6 +82,7 @@ Hostnames are `<service>.<subdomain>.<apex>`. With `domain.subdomain: dev` the d
 | `seedDemo.enabled`                | Load demo sites, stations, and sessions once (not allowed in prod)                   |
 | `payments.allowSimulatedProvider` | Allow the simulated payment provider (required with `seedDemo`, not allowed in prod) |
 | `octt.ocspResponder`              | Run the OCSP tests of dashboard conformance runs (one worker task)                   |
+| `sizing`                          | `prod` copies the sizing and topology of `config/prod.yaml` (dev and qa only)        |
 | `monitoring.alarmEmail`           | Email address that receives alerts                                                   |
 | `rotation.databaseDays`           | How often database credentials rotate                                                |
 

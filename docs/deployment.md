@@ -56,10 +56,11 @@ One-time steps before the first deploy of this version to an environment that al
 
 2. Remove `observability.loki` from your config files and `CDK_LOCAL_CONFIG`. Grafana now reads logs from CloudWatch, and the deploy removes Loki, the log forwarder, and its subscription filters. With `storage.removal: retain` (prod), the `evtivity-<env>-loki-<account>` bucket stays behind. Empty and delete it when you no longer need the old Loki data.
 3. Remove `vpc.flowLogRetentionDays` from your config files and `CDK_LOCAL_CONFIG`. Flow logs now go to the logs bucket and follow `storage.logsExpirationDays`.
-4. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
-5. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
-6. Per-service Valkey users (0.1.38): the deploy creates `evtivity/<env>/cache-<service>` and one Valkey user per enabled service, adds them to the user group, and moves each service to its own user. The legacy `cache-app` user and secret stay in this release so tasks that still run the old task definition keep their connection during the deploy. The next release deletes them. Nothing to do by hand.
-7. Legacy cleanup (0.1.39): deploy 0.1.38 first. From an earlier release, the update fails and rolls back, because the older App or Alb stack still imports an export this release deletes. The deploy deletes the legacy shared Valkey user, its `evtivity/<env>/cache-app` secret and rotation schedule, and the superseded wildcard ACM certificate of the Domain stack, together with their stack exports. With `secrets.removal: retain` (prod) the `cache-app` secret stays in Secrets Manager: delete it by hand (`aws secretsmanager delete-secret --secret-id evtivity/<env>/cache-app`). CloudFormation leaves the wildcard certificate's DNS validation CNAME record in the hosted zone. It is harmless, and you can delete it when no other ACM certificate in the account names the zone apex.
+4. NAT ids (0.1.43): the App stack now reads the NAT ids from the SSM parameter `/evtivity/<env>/network/nat-ids` instead of a Network stack export. Deploy 0.1.43 with your current `vpc.nat` first (`--all`, which updates Network before App). Switch NAT mode or count only after that deploy. The Network stack keeps the old NAT exports for this one release.
+5. Services with `autoscaling` must set `desiredCount` equal to `autoscaling.min`.
+6. The deploy updates the Valkey user, which resets its passwords to the current secret. Redeploy the services right after (`aws ecs update-service --force-new-deployment`, or wait for the scheduled redeploy) so no task holds an older password.
+7. Per-service Valkey users (0.1.38): the deploy creates `evtivity/<env>/cache-<service>` and one Valkey user per enabled service, adds them to the user group, and moves each service to its own user. The legacy `cache-app` user and secret stay in this release so tasks that still run the old task definition keep their connection during the deploy. The next release deletes them. Nothing to do by hand.
+8. Legacy cleanup (0.1.39): deploy 0.1.38 first. From an earlier release, the update fails and rolls back, because the older App or Alb stack still imports an export this release deletes. The deploy deletes the legacy shared Valkey user, its `evtivity/<env>/cache-app` secret and rotation schedule, and the superseded wildcard ACM certificate of the Domain stack, together with their stack exports. With `secrets.removal: retain` (prod) the `cache-app` secret stays in Secrets Manager: delete it by hand (`aws secretsmanager delete-secret --secret-id evtivity/<env>/cache-app`). CloudFormation leaves the wildcard certificate's DNS validation CNAME record in the hosted zone. It is harmless, and you can delete it when no other ACM certificate in the account names the zone apex.
 
 ## Configuration
 
@@ -77,8 +78,10 @@ Common changes:
 | Size a service                                      | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling`                                           |
 | Cheaper, interruptible compute                      | `services.<name>.capacity: FARGATE_SPOT`                                                                    |
 | Aurora capacity                                     | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`                                                      |
-| Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`                                                                        |
-| NAT                                                 | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count`                                                    |
+| Production sizing in a lower environment            | `sizing: prod` (see [Sizing preset](#sizing-preset-sizing-prod))                                            |
+| Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`, `valkey.multiAz` (see [Valkey replicas](#valkey-replicas))            |
+| NAT                                                 | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count` (see [Changing NAT](#changing-nat))                |
+| VPC interface endpoints                             | `vpc.interfaceEndpoints` (HTTPS from the VPC CIDR only)                                                     |
 | WAF (rules in [security.md](security.md#waf-rules)) | `waf.enabled`, `waf.rateLimitPer5Min`, `waf.countRules`                                                     |
 | Countries allowed through WAF                       | `waf.allowCountries` (default `[US]`, `[]` turns it off)                                                    |
 | WAF rate limits (per IP, 5 min)                     | `waf.ocppRateLimitPer5Min`, `authRateLimitPer5Min`, `guestRateLimitPer5Min`, `adyenWebhookRateLimitPer5Min` |
@@ -87,6 +90,27 @@ Common changes:
 | Settings table values                               | `appSettings` (non-secret keys only)                                                                        |
 
 Aurora readers are pinned to the availability zones after the first (`vpc.availabilityZones`), so an AZ outage leaves a reader running. The writer is never pinned, because setting its AZ would replace it. Pinning a reader that already exists in another AZ replaces that reader once, with no writer failover.
+
+### Sizing preset: `sizing: prod`
+
+`sizing: prod` in `config/<env>.local.yaml` (or `--context sizing=prod` on the command line, which wins) gives dev or qa the sizing and topology of the committed `config/prod.yaml`. Use it for load tests and benchmarks, so the numbers describe a production configuration. Deploy it fresh: converting a running environment changes NAT and Valkey in place, which needs the steps below.
+
+The preset copies (`lib/config/sizing.ts`):
+
+- api, ocpp, ocpi, csms, portal, and worker: `cpu`, `memoryMiB`, `desiredCount`, `autoscaling`, `capacity` (on-demand or Spot), `deregistrationDelaySeconds`, `stopTimeoutSeconds`
+- Aurora: `mode`, `minCapacity`, `maxCapacity`, `autoPauseSeconds`, `instanceClass`, `readers`, `performanceInsights`, `monitoringIntervalSeconds`, `poolMax`
+- Valkey: `nodeType`, `replicas`, `multiAz`
+- NAT `mode`, `count`, `instanceType`, and `vpc.interfaceEndpoints`
+- WAF: `enabled` and the rate limits
+- `ecs.containerInsights`, `ocppConnectionAuth`, the Grafana and Prometheus task sizes
+- `octt.ocspResponder`, because it needs a single worker task and prod's worker autoscales
+
+The environment keeps its identity and safety settings: account, region, domain and subdomain, resource and stack names, tags, the VPC CIDR and AZs, removal policies, deletion protection, backup and log retention, `monitoring.alarms`, `ecs.executeCommand`, the css and ocpi simulator services, `seedDemo`, `payments.allowSimulatedProvider`, and `appSettings`. Values in `config/<env>.local.yaml` still win over the preset, for example a higher `waf.rateLimitPer5Min` when a load driver sends many stations from one address. The preset has no effect in prod.
+
+```bash
+npm run synth -- --context env=dev --context sizing=prod
+npm run deploy -- --context env=dev --context sizing=prod --all --profile <name>
+```
 
 Stop a lower environment without deleting it: set `desiredCount: 0` on every service (with autoscaling, also `autoscaling.min: 0`) and deploy. With `aurora.minCapacity: 0`, Aurora pauses after `aurora.autoPauseSeconds` without connections, leaving the ALB, NAT, Valkey, and secrets as the idle cost.
 
@@ -234,6 +258,31 @@ The synth applies the same rules as the CSMS validators and the Helm chart.
 
 Grafana (with the Helm chart's dashboards and alert rules), the CloudWatch dashboards and alarms, the alerts topic, and Grafana access are covered in [observability.md](observability.md).
 
+## Valkey replicas
+
+`valkey.replicas` adds read replicas, and with one or more replicas Multi-AZ and automatic failover turn on (`valkey.multiAz`, default on when `replicas` is above 0). A new environment gets both in one deploy.
+
+An existing single node cannot get a replica and Multi-AZ in one update: ElastiCache refuses Multi-AZ until the nodes run in two AZs ("Cannot enable Multi-AZ unless there are nodes across two or more AZs"). Setting the node AZs (`PreferredCacheClusterAZs`) would replace the replication group, so the stack never sets them. Add a replica in two deploys of the Data stack:
+
+1. Set `valkey.replicas: 1` and `valkey.multiAz: false`, then deploy. ElastiCache adds the replica and places it in an AZ of the subnet group. Check that the nodes run in two AZs:
+
+   ```bash
+   aws elasticache describe-cache-clusters --query "CacheClusters[?ReplicationGroupId=='evtivity-<env>'].[CacheClusterId,PreferredAvailabilityZone]" --output text
+   ```
+
+2. Remove `valkey.multiAz` (or set it to `true`), then deploy. This turns on automatic failover and Multi-AZ.
+
+To remove the replicas, reverse the order: `valkey.multiAz: false` first, then `valkey.replicas: 0`. Adding or removing a replica does not interrupt the primary.
+
+## Changing NAT
+
+The Network stack writes the NAT instance or gateway ids to the SSM parameter `/evtivity/<env>/network/nat-ids`, and the App stack reads them for its NAT alarms and dashboard widgets. No stack export ties the two, so the Network stack can replace the NAT (a new `vpc.nat.mode` or `count`, or a new fck-nat AMI) in place:
+
+1. Change `vpc.nat` and deploy the Network stack. Private subnets lose outbound traffic for about a minute while the routes move.
+2. Deploy the App stack. CloudFormation reads the parameter again on every App stack update. A change of mode or count changes the App template, so the deploy updates it. After a new fck-nat AMI, the template is the same: run `npm run deploy -- --context env=<env> --exclusively Evtivity-<Env>-App --force` so the alarms follow the new instance.
+
+Upgrading from 0.1.42 or earlier: see [Upgrading](#upgrading-an-environment-deployed-before-these-changes), step 4.
+
 ## Updating the fck-nat AMI
 
 `vpc.nat.amiIds` pins the AMI per region. Find the latest:
@@ -244,7 +293,7 @@ aws ec2 describe-images --owners 568608671756 \
   --query 'sort_by(Images,&CreationDate)[-1].[ImageId,Name]' --output text
 ```
 
-A new AMI replaces the NAT instance, which interrupts outbound traffic for about a minute.
+A new AMI replaces the NAT instance, which interrupts outbound traffic for about a minute. Then redeploy the App stack with `--force` (see [Changing NAT](#changing-nat)).
 
 ## Tearing down
 

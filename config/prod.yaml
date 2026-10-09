@@ -126,8 +126,15 @@ services:
     desiredCount: 2
   worker:
     enabled: true
-    cpu: 512
-    memoryMiB: 1024
+    # 0.5 vCPU ran at 72 to 94% CPU with 400 sessions charging (2026-10-09
+    # benchmark). BullMQ schedulers and jobIds keep cron and bridged jobs to
+    # one run across tasks, so the worker scales out.
+    cpu: 1024
+    memoryMiB: 2048
+    desiredCount: 1
+    autoscaling:
+      min: 1
+      max: 4
   css:
     enabled: false
   ocpiSim:

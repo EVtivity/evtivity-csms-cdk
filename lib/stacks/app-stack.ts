@@ -8,6 +8,7 @@ import {
   type StackProps,
   CfnOutput,
   Duration,
+  Fn,
   aws_ec2 as ec2,
   aws_ecs as ecs,
   aws_elasticloadbalancingv2 as elbv2,
@@ -23,6 +24,7 @@ import {
   aws_sns as sns,
   aws_sns_subscriptions as subs,
   aws_servicediscovery as servicediscovery,
+  aws_ssm as ssm,
 } from 'aws-cdk-lib';
 import type { Construct, IConstruct } from 'constructs';
 import {
@@ -42,6 +44,7 @@ import { Observability } from '../constructs/observability.js';
 import type { CacheUserName } from '../redis-acl.js';
 import {
   namePrefix,
+  natIdsParameterName,
   removalPolicyOf,
   secretPrefix,
   serviceHost,
@@ -55,8 +58,11 @@ export interface AppStackProps extends StackProps {
   ecsSg: ec2.ISecurityGroup;
   observabilitySg?: ec2.ISecurityGroup;
   nlbSg?: ec2.ISecurityGroup;
-  /** NAT instance or gateway ids from the Network stack. */
-  natIds: string[];
+  /**
+   * Number of NAT instances or gateways in the Network stack. The ids come
+   * from its SSM parameter, not a stack export (see NetworkStack).
+   */
+  natCount: number;
   alb: elbv2.ApplicationLoadBalancer;
   httpsListener: elbv2.IApplicationListener;
   httpListener: elbv2.IApplicationListener;
@@ -514,7 +520,13 @@ export class AppStack extends Stack {
     const grafanaUrl = observability != null ? `https://${observability.grafanaHost}` : undefined;
     if (grafanaUrl != null) new CfnOutput(this, 'Url-grafana', { value: grafanaUrl });
 
-    const metrics = new EnvMetrics(config, this.cluster.clusterName, props.alb, props.natIds);
+    // Resolved by CloudFormation on every App stack update.
+    const natIdList = ssm.StringListParameter.valueForTypedListParameter(
+      this,
+      natIdsParameterName(config),
+    );
+    const natIds = Array.from({ length: props.natCount }, (_, i) => Fn.select(i, natIdList));
+    const metrics = new EnvMetrics(config, this.cluster.clusterName, props.alb, natIds);
     const alarms = config.monitoring.alarms
       ? new Monitoring(this, 'Monitoring', {
           config,

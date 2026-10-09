@@ -8,7 +8,7 @@ Monthly estimates for the committed `dev`, `qa`, and `prod` configs in us-east-1
 | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
 | dev         | $127 to $191     | Aurora (36 to 49%), ALB with IPv4 (24%), Fargate Spot (10 to 15%)                                        |
 | qa          | $203 to $271     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
-| prod        | $607 to $969     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
+| prod        | $621 to $991     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
 
 Totals include observability (Prometheus and Grafana), which every environment enables. It adds $5 to $11 in dev (Fargate Spot) and $15 to $21 in qa and prod. The per-environment tables below list the platform without it.
 
@@ -77,7 +77,7 @@ Optional add-ons:
 
 | Line                                                                      | Monthly            |
 | ------------------------------------------------------------------------- | ------------------ |
-| Fargate on-demand baseline (6.0 vCPU, 12 GB), up to 1.5x when scaled out  | $173.01 to $259.51 |
+| Fargate on-demand baseline (6.5 vCPU, 13 GB), up to 1.5x when scaled out  | $187.43 to $281.14 |
 | Aurora Serverless v2, writer and reader, 1 to 2 ACU average each          | $175.20 to $350.40 |
 | Aurora storage, I/O, and backups beyond the free allocation (20 to 50 GB) | $5 to $20          |
 | Valkey cache.t4g.medium x 2 (primary and replica)                         | $75.92             |
@@ -91,7 +91,7 @@ Optional add-ons:
 | CloudWatch alarms (about 24) and dashboard                                | $5.40              |
 | CloudWatch Logs (10 to 40 GB ingest, 365-day retention)                   | $8 to $30          |
 | Cloud Map, Lambda, S3, data transfer, other                               | $5 to $20          |
-| **Total**                                                                 | **$592 to $948**   |
+| **Total**                                                                 | **$606 to $970**   |
 
 ## Observability (per environment)
 

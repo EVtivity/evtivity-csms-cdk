@@ -9,6 +9,7 @@ import {
   aws_cloudwatch_actions as cwActions,
   aws_ec2 as ec2,
   type aws_s3 as s3,
+  aws_ssm as ssm,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import {
@@ -20,6 +21,7 @@ import {
   internalPorts,
 } from '../catalog.js';
 import type { Config } from '../config/index.js';
+import { natIdsParameterName } from '../util.js';
 
 export interface NetworkStackProps extends StackProps {
   config: Config;
@@ -131,6 +133,18 @@ export class NetworkStack extends Stack {
       }
     }
     this.natIds = natProvider.configuredGateways.map((g) => g.gatewayId);
+    // The App stack reads the NAT ids from this parameter instead of a stack
+    // export, so the Network stack can replace the NAT (vpc.nat.mode, count,
+    // or a new fck-nat AMI) while the App stack still shows the old ids. The
+    // App stack picks up the new ids on its next deploy.
+    new ssm.StringListParameter(this, 'NatIdsParam', {
+      parameterName: natIdsParameterName(config),
+      description: `EVtivity ${config.env} NAT instance or gateway ids, for the App stack monitoring`,
+      stringListValue: this.natIds,
+    });
+    // App stacks deployed before 0.1.43 import these ids. Keep the exports for
+    // one release so the Network stack can update first; delete in 0.1.44.
+    for (const id of this.natIds) this.exportValue(id);
 
     // VPC flow logs (EC2.6). S3 costs about half of CloudWatch Logs ingestion
     // for this volume, and the logs bucket's expiration sets the retention.
@@ -146,12 +160,29 @@ export class NetworkStack extends Stack {
 
     // Free gateway endpoint: S3 traffic (app bucket) skips the NAT.
     this.vpc.addGatewayEndpoint('S3Gateway', { service: ec2.GatewayVpcEndpointAwsService.S3 });
-    for (const name of config.vpc.interfaceEndpoints) {
-      this.vpc.addInterfaceEndpoint(`Endpoint-${name}`, {
-        service: ENDPOINT_SERVICES[name],
-        privateDnsEnabled: true,
-        subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+    if (config.vpc.interfaceEndpoints.length > 0) {
+      // One group for every interface endpoint: HTTPS from inside the VPC only.
+      // The literal CIDR (not the VPC's CidrBlock attribute) keeps the rule
+      // checkable by cdk-nag (EC23).
+      const endpointSg = new ec2.SecurityGroup(this, 'EndpointSg', {
+        vpc: this.vpc,
+        description: 'EVtivity VPC interface endpoints',
+        allowAllOutbound: false,
       });
+      endpointSg.addIngressRule(
+        ec2.Peer.ipv4(config.vpc.cidr),
+        ec2.Port.tcp(443),
+        'HTTPS from the VPC',
+      );
+      for (const name of config.vpc.interfaceEndpoints) {
+        this.vpc.addInterfaceEndpoint(`Endpoint-${name}`, {
+          service: ENDPOINT_SERVICES[name],
+          privateDnsEnabled: true,
+          subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+          securityGroups: [endpointSg],
+          open: false,
+        });
+      }
     }
 
     // --- Security groups ---

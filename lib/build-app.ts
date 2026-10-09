@@ -76,7 +76,7 @@ export function buildApp(app: App, config: Config, updatedDate: string): Evtivit
     ecsSg: network.ecsSg,
     ...(network.nlbSg != null && { nlbSg: network.nlbSg }),
     ...(network.observabilitySg != null && { observabilitySg: network.observabilitySg }),
-    natIds: network.natIds,
+    natCount: network.natIds.length,
     alb: alb.alb,
     httpsListener: alb.httpsListener,
     httpListener: alb.httpListener,

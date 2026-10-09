@@ -325,7 +325,8 @@ export class DataStack extends Stack {
       removalPolicy: removalPolicyOf(config.logs.removal),
     }));
 
-    const replicated = config.valkey.replicas > 0;
+    // Multi-AZ needs automatic failover and a replica in a second AZ.
+    const multiAz = config.valkey.multiAz ?? config.valkey.replicas > 0;
     const valkey = new elasticache.CfnReplicationGroup(this, 'Valkey', {
       replicationGroupId: prefix,
       replicationGroupDescription: `${prefix} Valkey`,
@@ -333,8 +334,8 @@ export class DataStack extends Stack {
       engineVersion: config.valkey.engineVersion,
       cacheNodeType: config.valkey.nodeType,
       numCacheClusters: 1 + config.valkey.replicas,
-      automaticFailoverEnabled: replicated,
-      multiAzEnabled: replicated,
+      automaticFailoverEnabled: multiAz,
+      multiAzEnabled: multiAz,
       cacheSubnetGroupName: subnetGroup.ref,
       cacheParameterGroupName: params.ref,
       securityGroupIds: [valkeySg.securityGroupId],
