@@ -627,7 +627,7 @@
       "type": "timeseries",
       "title": "CPU Usage",
       "description": "Process CPU usage rate",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
       "id": 17,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -680,7 +680,7 @@
       "type": "timeseries",
       "title": "Open File Descriptors",
       "description": "Process open file descriptors",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
       "id": 18,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -727,9 +727,54 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Uptime",
+      "description": "Time since the process started. A drop to zero marks a restart.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "id": 19,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds",
+          "legendFormat": "Uptime · {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": { "type": "linear" }
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "type": "row",
       "title": "OCPP Health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "id": 30,
       "collapsed": false,
       "panels": []
@@ -737,7 +782,7 @@
     {
       "type": "stat",
       "title": "Connected Stations",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 34 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 43 },
       "id": 31,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -772,7 +817,7 @@
     {
       "type": "stat",
       "title": "Avg Ping Latency",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 34 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 43 },
       "id": 32,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -807,7 +852,7 @@
     {
       "type": "stat",
       "title": "Max Ping Latency",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 34 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 43 },
       "id": 33,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -842,7 +887,7 @@
     {
       "type": "gauge",
       "title": "Ping Success Rate",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 34 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 43 },
       "id": 34,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -878,7 +923,7 @@
     {
       "type": "timeseries",
       "title": "Connected Stations Over Time",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 38 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 47 },
       "id": 35,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -910,7 +955,7 @@
     {
       "type": "timeseries",
       "title": "Ping Latency Over Time",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 38 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 47 },
       "id": 36,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
