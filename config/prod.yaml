@@ -127,8 +127,9 @@ services:
   worker:
     enabled: true
     # 0.5 vCPU ran at 72 to 94% CPU with 400 sessions charging (2026-10-09
-    # benchmark). BullMQ schedulers and jobIds keep cron and bridged jobs to
-    # one run across tasks, so the worker scales out.
+    # benchmark). Each cron tick and bridged job runs once across tasks, and
+    # Redis locks keep a cron job or fan-out from overlapping itself, so the
+    # worker scales out.
     cpu: 1024
     memoryMiB: 2048
     desiredCount: 1
