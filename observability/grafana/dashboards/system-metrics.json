@@ -119,8 +119,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "http_active_requests",
-          "legendFormat": "Active requests · {{instance}}",
+          "expr": "sum(http_active_requests)",
+          "legendFormat": "Active requests",
           "refId": "A"
         }
       ],
