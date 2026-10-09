@@ -742,7 +742,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_connected_stations",
+          "expr": "max(ocpp_connected_stations)",
           "legendFormat": "",
           "refId": "A",
           "instant": true
@@ -777,7 +777,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_avg_ms",
+          "expr": "max(ocpp_ping_latency_avg_ms)",
           "legendFormat": "",
           "refId": "A",
           "instant": true
@@ -812,7 +812,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_max_ms",
+          "expr": "max(ocpp_ping_latency_max_ms)",
           "legendFormat": "",
           "refId": "A",
           "instant": true
@@ -847,7 +847,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_success_rate",
+          "expr": "max(ocpp_ping_success_rate)",
           "legendFormat": "",
           "refId": "A",
           "instant": true
@@ -883,7 +883,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_connected_stations",
+          "expr": "max(ocpp_connected_stations)",
           "legendFormat": "Connected",
           "refId": "A"
         }
@@ -915,12 +915,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_avg_ms",
+          "expr": "max(ocpp_ping_latency_avg_ms)",
           "legendFormat": "Avg",
           "refId": "A"
         },
         {
-          "expr": "ocpp_ping_latency_max_ms",
+          "expr": "max(ocpp_ping_latency_max_ms)",
           "legendFormat": "Max",
           "refId": "B"
         }
