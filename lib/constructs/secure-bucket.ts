@@ -15,6 +15,8 @@ export interface SecureBucketProps {
   serverAccessLogsBucket?: s3.IBucket;
   serverAccessLogsPrefix?: string;
   cors?: s3.CorsRule[];
+  /** Rules added after the standard ones, for example a prefix that expires early. */
+  extraLifecycleRules?: s3.LifecycleRule[];
 }
 
 /**
@@ -41,6 +43,7 @@ export class SecureBucket extends s3.Bucket {
         expiredObjectDeleteMarker: true,
       });
     }
+    lifecycleRules.push(...(props.extraLifecycleRules ?? []));
     super(scope, id, {
       bucketName: props.bucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
