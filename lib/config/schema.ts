@@ -65,6 +65,16 @@ const RESERVED_URL_SCHEMES = new Set([
 const ANDROID_PACKAGE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 const LIST_SETTING_KEYS = new Set([MOBILE_APP_URL_SCHEMES_KEY, MOBILE_APP_ANDROID_PACKAGES_KEY]);
 
+// AI assistant settings. Mirrors the provider registry and the effort levels
+// in the CSMS repo (packages/api/src/services/ai/), which the Helm chart repeats.
+const AI_PROVIDERS = ['anthropic', 'openai', 'gemini', 'deepseek'];
+const AI_EFFORTS = ['low', 'medium', 'high'];
+const AI_SUPPORT_TONES = ['professional', 'friendly', 'formal'];
+// Replaced by <surface>.effort.
+const REMOVED_AI_SAMPLING_KEYS = new Set(
+  ['chatbotAi', 'supportAi'].flatMap((s) => [`${s}.temperature`, `${s}.topP`, `${s}.topK`]),
+);
+
 /** A value in appSettings. Lists are allowed only for the mobile.app.* keys. */
 export type AppSettingValue = string | number | boolean | string[];
 
@@ -335,7 +345,14 @@ export const configSchema = z
       .strictObject({
         // WebSockets stay open past this only while frames flow. OCPP
         // heartbeats and pings keep station connections alive.
-        idleTimeoutSeconds: z.number().int().min(1).max(4000).default(120),
+        // The AI assistant streams over SSE with a 15-second heartbeat, so the
+        // timeout must stay at 60 seconds or more.
+        idleTimeoutSeconds: z
+          .number()
+          .int()
+          .min(60, 'must be at least 60: AI assistant streams send a heartbeat every 15 seconds')
+          .max(4000)
+          .default(120),
         deletionProtection: z.boolean().default(false),
         // Plain ws:// for OCPP security profiles 0 and 1 on port 80. Station
         // passwords then cross the internet unencrypted. See EXC-007.
@@ -609,6 +626,21 @@ export const configSchema = z
           message: 'removed: the platform runs in one currency, set company.currency',
         });
       }
+      if (REMOVED_AI_SAMPLING_KEYS.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `removed: set ${key.slice(0, key.indexOf('.'))}.effort (low, medium, or high) instead`,
+        });
+      }
+      if (key === 'chatbotAi.apiKey' || key === 'supportAi.apiKey') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'removed: API keys are stored once per provider as ai.<provider>.apiKeyEnc, entered in the dashboard',
+        });
+      }
       if (key === 'stripe.preAuthAmountCents' || key === 'stripe.platformFeePercent') {
         ctx.addIssue({
           code: 'custom',
@@ -768,6 +800,62 @@ export const configSchema = z
     numberIssue('fleet.invoiceRunDay', 1, 28, true);
     // Fleet credit an account session reserves per slice, validated like the Helm chart and the API.
     numberIssue('fleet.creditReservationCents', 1, 100_000_000, true);
+    // AI assistant settings, validated like the Helm chart and the API.
+    numberIssue('ai.rateLimit.userPerMinute', 1, 1000, true);
+    numberIssue('ai.rateLimit.sitePerMinute', 1, 100_000, true);
+    numberIssue('ai.budget.userDailyTokens', 0, 10_000_000_000, true);
+    numberIssue('ai.maxToolCallsPerTurn', 1, 100, true);
+    numberIssue('ai.conversationRetentionDays', 1, 3650, true);
+    numberIssue('ai.attachments.maxBytes', 1, 33_554_432, true);
+    numberIssue('ai.attachments.maxPerMessage', 1, 20, true);
+    const supportTone = c.appSettings['supportAi.tone'];
+    if (supportTone != null && !AI_SUPPORT_TONES.includes(String(supportTone))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'supportAi.tone'],
+        message: `use ${AI_SUPPORT_TONES.join(', ')}`,
+      });
+    }
+    for (const surface of ['chatbotAi', 'supportAi']) {
+      const effort = c.appSettings[`${surface}.effort`];
+      if (effort != null && !AI_EFFORTS.includes(String(effort))) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', `${surface}.effort`],
+          message: `use ${AI_EFFORTS.join(', ')}`,
+        });
+      }
+      const provider = c.appSettings[`${surface}.provider`];
+      if (provider != null && provider !== '' && !AI_PROVIDERS.includes(String(provider))) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', `${surface}.provider`],
+          message: `unsupported AI provider ${String(provider)}: use ${AI_PROVIDERS.join(', ')}, or leave it empty`,
+        });
+      }
+    }
+    for (const provider of AI_PROVIDERS) {
+      const key = `ai.${provider}.baseUrl`;
+      const baseUrl = c.appSettings[key];
+      if (baseUrl == null || baseUrl === '') continue;
+      // The API sends the provider key to this address.
+      const url = typeof baseUrl === 'string' ? URL.parse(baseUrl) : null;
+      if (
+        url == null ||
+        url.protocol !== 'https:' ||
+        url.username !== '' ||
+        url.password !== '' ||
+        url.search !== '' ||
+        url.hash !== ''
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'use an https URL without credentials, query, or fragment, or leave it empty for the official endpoint',
+        });
+      }
+    }
     const simulatedResultMode = c.appSettings['simulated.resultMode'];
     if (
       simulatedResultMode != null &&

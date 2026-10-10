@@ -66,7 +66,7 @@ One-time steps before the first deploy of this version to an environment that al
 
 `config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides. An empty or comment-only local file is fine.
 
-Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), invalid `mobile.app.*` lists, availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
+Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), the removed AI keys (see [AI assistant settings](#ai-assistant-settings-in-appsettings)), an `alb.idleTimeoutSeconds` under 60, invalid `mobile.app.*` lists, availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
 
 Common changes:
 
@@ -184,6 +184,10 @@ Stations connect to `wss://ocpp-tls.<zone>:8443/<stationId>`. Security profiles 
 
 Same secret shape, for the charging station simulator to test security profile 3.
 
+### ALB idle timeout: `alb.idleTimeoutSeconds`
+
+Default 120 seconds. The synth refuses a value under 60: the AI assistant streams its answers over server-sent events with a heartbeat every 15 seconds, and a shorter timeout would cut a stream while the model works.
+
 ### Plain `ws://` for OCPP: `alb.ocppPlainWs`
 
 Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 0 and 1. See EXC-007 before enabling.
@@ -236,6 +240,28 @@ These keys are optional. Leave one out to keep the value set in Settings > Payme
 | `simulated.randomFailureRate` | Test provider failure rate of cards without a scenario, 0 to 1                    |
 
 `stripe.preAuthAmountCents` and `stripe.platformFeePercent` moved to `payments.*`. The synth rejects the old names. The upgrade copies the stored values to the new settings.
+
+### AI assistant settings in `appSettings`
+
+These keys are optional. Leave one out to keep the value set in the dashboard. Provider API keys are not config values: enter them in the dashboard, one per provider (`ai.<provider>.apiKeyEnc`).
+
+| Key                                        | Values                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `chatbotAi.provider`, `supportAi.provider` | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                      |
+| `chatbotAi.effort`, `supportAi.effort`     | `low`, `medium`, or `high`                                                                 |
+| `supportAi.tone`                           | `professional`, `friendly`, or `formal`                                                    |
+| `ai.<provider>.baseUrl`                    | Empty for the official endpoint, or an `https` URL without credentials, query, or fragment |
+| `ai.rateLimit.userPerMinute`               | Whole number from 1 to 1000                                                                |
+| `ai.rateLimit.sitePerMinute`               | Whole number from 1 to 100000                                                              |
+| `ai.budget.userDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                      |
+| `ai.maxToolCallsPerTurn`                   | Whole number from 1 to 100                                                                 |
+| `ai.conversationRetentionDays`             | Whole number of days from 1 to 3650                                                        |
+| `ai.attachments.maxBytes`                  | Whole number of bytes from 1 to 33554432 (32 MiB)                                          |
+| `ai.attachments.maxPerMessage`             | Whole number from 1 to 20                                                                  |
+
+The synth rejects the removed keys `chatbotAi.temperature`, `chatbotAi.topP`, `chatbotAi.topK` and the same `supportAi.*` keys (set `<surface>.effort` instead), and `chatbotAi.apiKey` and `supportAi.apiKey` (one key per provider, entered in the dashboard).
+
+AI assistant uploads land in the app bucket under `ai-uploads/quarantine/` until the API has checked them. A lifecycle rule on that prefix deletes objects, noncurrent versions, and incomplete multipart uploads after one day. The app bucket CORS allows `POST` for the presigned POST uploads.
 
 ### Mobile app builds in `appSettings`
 
