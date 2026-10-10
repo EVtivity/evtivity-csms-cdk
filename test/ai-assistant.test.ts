@@ -133,6 +133,24 @@ void describe('AI upload quarantine', () => {
     }
   });
 
+  void it('lets the worker delete app bucket objects (ai-retention-prune)', () => {
+    const app = Template.fromStack(build('dev').app);
+    const policies = Object.entries(app.findResources('AWS::IAM::Policy')).filter(([id]) =>
+      /^Svcworker.*TaskRole/.test(id),
+    );
+    assert.ok(policies.length > 0, 'no worker task role policy');
+    const statements = policies.flatMap(
+      ([, r]) =>
+        (r as { Properties: { PolicyDocument: { Statement: { Action: unknown }[] } } }).Properties
+          .PolicyDocument.Statement,
+    );
+    const actions = statements.flatMap((s): unknown[] =>
+      Array.isArray(s.Action) ? (s.Action as unknown[]) : [s.Action],
+    );
+    assert.ok(actions.includes('s3:DeleteObject'), JSON.stringify(actions));
+    assert.ok(actions.includes('s3:ListBucket'), JSON.stringify(actions));
+  });
+
   void it('allows presigned POST uploads from the browser', () => {
     const storage = Template.fromStack(build('dev').storage);
     storage.hasResourceProperties('AWS::S3::Bucket', {
