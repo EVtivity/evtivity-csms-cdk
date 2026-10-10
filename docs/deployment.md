@@ -258,6 +258,30 @@ These keys are optional. Leave one out to keep the value set in the dashboard. P
 | `ai.conversationRetentionDays`             | Whole number of days from 1 to 3650                                                        |
 | `ai.attachments.maxBytes`                  | Whole number of bytes from 1 to 33554432 (32 MiB)                                          |
 | `ai.attachments.maxPerMessage`             | Whole number from 1 to 20                                                                  |
+| `opsAi.enabled`                            | Operations AI for automatic insights and AI workers: `true` or `false`                     |
+| `opsAi.provider`                           | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                      |
+| `opsAi.model`, `opsAi.systemPrompt`        | Text. Empty uses the provider's router model and the built-in prompt                       |
+| `opsAi.effort`                             | `low`, `medium`, or `high`                                                                 |
+| `aiInsights.<subject>.enabled`             | `true` or `false` for `station`, `session`, and `authorization`                            |
+| `aiInsights.debounceSeconds`               | Whole number of seconds from 0 to 3600                                                     |
+| `aiInsights.cooldownMinutes`               | Whole number of minutes from 1 to 10080                                                    |
+| `aiInsights.siteIncidentThreshold`         | Whole number of stations from 2 to 1000                                                    |
+| `aiInsights.maxPerSitePerDay`              | Whole number from 1 to 10000                                                               |
+| `aiInsights.primaryLanguage`               | `en`, `de`, `es`, `ko`, `zh`, or `zh-TW`                                                   |
+| `aiInsights.retentionDays`                 | Whole number of days from 1 to 3650                                                        |
+| `aiWorkers.<job>.enabled`                  | `true` or `false` for `networkSummary`, `stuckSessions`, and `tariffAnomalies`             |
+| `aiWorkers.stuckSessions.idleMinutes`      | Whole number of minutes from 15 to 1440                                                    |
+| `aiWorkers.stuckSessions.useModel`         | `true` or `false`                                                                          |
+| `aiWorkers.proposalTtlHours`               | Whole number of hours from 1 to 168                                                        |
+| `ai.mcp.enabled`                           | `true` or `false`                                                                          |
+| `ai.mcp.rateLimitPerMinute`                | Whole number from 1 to 10000                                                               |
+| `ai.mcp.dailyCallsPerKey`                  | Whole number from 1 to 10000000                                                            |
+| `ai.mcp.proposalTtlMinutes`                | Whole number of minutes from 5 to 1440                                                     |
+| `ai.mcp.allowedOrigins`                    | List of at most 50 origins, `scheme://host[:port]` with `http` or `https` and no path      |
+| `ai.budget.companyMonthlyTokens`           | Whole number from 0 to 1000000000000 (0 means no limit)                                    |
+| `ai.budget.siteMonthlyTokens`              | Whole number from 0 to 1000000000000 (0 means no limit)                                    |
+| `ai.budget.siteDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                      |
+| `ai.budget.warnPercent`                    | Whole number from 1 to 100                                                                 |
 
 The synth rejects the removed keys `chatbotAi.temperature`, `chatbotAi.topP`, `chatbotAi.topK` and the same `supportAi.*` keys (set `<surface>.effort` instead), and `chatbotAi.apiKey` and `supportAi.apiKey` (one key per provider, entered in the dashboard).
 

@@ -111,6 +111,160 @@ void describe('AI assistant settings', () => {
   });
 });
 
+// Operations AI, insights, workers, MCP and budgets (TC-AI-C-10).
+const NEW_AI_SETTINGS: Record<string, string | number | boolean | string[]> = {
+  'opsAi.enabled': true,
+  'opsAi.provider': 'openai',
+  'opsAi.model': 'gpt-test',
+  'opsAi.effort': 'medium',
+  'opsAi.systemPrompt': 'Be brief.',
+  'aiInsights.station.enabled': false,
+  'aiInsights.session.enabled': true,
+  'aiInsights.authorization.enabled': false,
+  'aiInsights.debounceSeconds': 0,
+  'aiInsights.cooldownMinutes': 10_080,
+  'aiInsights.siteIncidentThreshold': 2,
+  'aiInsights.maxPerSitePerDay': 10_000,
+  'aiInsights.primaryLanguage': 'zh-TW',
+  'aiInsights.retentionDays': 3650,
+  'aiWorkers.networkSummary.enabled': true,
+  'aiWorkers.stuckSessions.enabled': true,
+  'aiWorkers.stuckSessions.idleMinutes': 15,
+  'aiWorkers.stuckSessions.useModel': true,
+  'aiWorkers.tariffAnomalies.enabled': false,
+  'aiWorkers.proposalTtlHours': 168,
+  'ai.mcp.enabled': true,
+  'ai.mcp.rateLimitPerMinute': 10_000,
+  'ai.mcp.dailyCallsPerKey': 10_000_000,
+  'ai.mcp.proposalTtlMinutes': 5,
+  'ai.mcp.allowedOrigins': ['https://agent.example.com', 'http://localhost:3000'],
+  'ai.budget.companyMonthlyTokens': 1_000_000_000_000,
+  'ai.budget.siteMonthlyTokens': 0,
+  'ai.budget.siteDailyTokens': 10_000_000_000,
+  'ai.budget.warnPercent': 100,
+};
+
+/** SETTINGS_JSON of the synthesized database job, parsed. Cross-stack values become "token". */
+function synthesizedSettings(config: Config): Record<string, unknown> {
+  const app = new App({ context: { ...CDK_CONTEXT, 'aws:cdk:bundling-stacks': [] } });
+  const stacks = buildApp(app, configSchema.parse(config), '2026-01-01');
+  const resolve = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    const join = (value as { 'Fn::Join'?: [string, unknown[]] })['Fn::Join'];
+    return join == null ? '"token"' : join[1].map((part) => resolve(part)).join(join[0]);
+  };
+  for (const task of Object.values(
+    Template.fromStack(stacks.app).findResources('AWS::ECS::TaskDefinition'),
+  )) {
+    const props = task['Properties'] as {
+      ContainerDefinitions: { Environment?: { Name: string; Value: unknown }[] }[];
+    };
+    for (const container of props.ContainerDefinitions) {
+      const entry = (container.Environment ?? []).find((e) => e.Name === 'SETTINGS_JSON');
+      if (entry != null) return JSON.parse(resolve(entry.Value)) as Record<string, unknown>;
+    }
+  }
+  throw new Error('no task definition carries SETTINGS_JSON');
+}
+
+void describe('AI operations, insight, worker, MCP and budget settings', () => {
+  void it('synthesizes every new key into the database job settings', () => {
+    const config = loadWith(`appSettings: ${JSON.stringify(NEW_AI_SETTINGS)}\n`)() as Config;
+    const settings = synthesizedSettings(config);
+    for (const [key, value] of Object.entries(NEW_AI_SETTINGS)) {
+      assert.deepEqual(settings[key], value, key);
+    }
+  });
+
+  void it('validates the new limits as whole numbers in the API ranges', () => {
+    const ranges: [string, number, number][] = [
+      ['ai.budget.companyMonthlyTokens', 0, 1_000_000_000_000],
+      ['ai.budget.siteMonthlyTokens', 0, 1_000_000_000_000],
+      ['ai.budget.siteDailyTokens', 0, 10_000_000_000],
+      ['ai.budget.warnPercent', 1, 100],
+      ['ai.mcp.rateLimitPerMinute', 1, 10_000],
+      ['ai.mcp.dailyCallsPerKey', 1, 10_000_000],
+      ['ai.mcp.proposalTtlMinutes', 5, 1440],
+      ['aiInsights.debounceSeconds', 0, 3600],
+      ['aiInsights.cooldownMinutes', 1, 10_080],
+      ['aiInsights.siteIncidentThreshold', 2, 1000],
+      ['aiInsights.maxPerSitePerDay', 1, 10_000],
+      ['aiInsights.retentionDays', 1, 3650],
+      ['aiWorkers.stuckSessions.idleMinutes', 15, 1440],
+      ['aiWorkers.proposalTtlHours', 1, 168],
+    ];
+    for (const [key, min, max] of ranges) {
+      assert.doesNotThrow(setting(key, String(min)), key);
+      assert.doesNotThrow(setting(key, String(max)), key);
+      assert.throws(setting(key, String(min - 1)), /whole number/, key);
+      assert.throws(setting(key, String(max + 1)), /whole number/, key);
+      assert.throws(setting(key, '2.5'), /whole number/, key);
+      assert.throws(setting(key, '"10"'), /whole number/, key);
+    }
+  });
+
+  void it('accepts only booleans for the switches', () => {
+    for (const key of [
+      'opsAi.enabled',
+      'aiInsights.station.enabled',
+      'aiInsights.session.enabled',
+      'aiInsights.authorization.enabled',
+      'aiWorkers.networkSummary.enabled',
+      'aiWorkers.stuckSessions.enabled',
+      'aiWorkers.stuckSessions.useModel',
+      'aiWorkers.tariffAnomalies.enabled',
+      'ai.mcp.enabled',
+    ]) {
+      assert.doesNotThrow(setting(key, 'true'), key);
+      assert.doesNotThrow(setting(key, 'false'), key);
+      assert.throws(setting(key, '"true"'), /use true or false/, key);
+      assert.throws(setting(key, '1'), /use true or false/, key);
+    }
+  });
+
+  void it('validates the operations AI provider, effort, model and prompt', () => {
+    for (const provider of ['anthropic', 'openai', 'gemini', 'deepseek', '""']) {
+      assert.doesNotThrow(setting('opsAi.provider', provider));
+    }
+    assert.throws(setting('opsAi.provider', 'mistral'), /unsupported AI provider mistral/);
+    for (const effort of ['low', 'medium', 'high']) {
+      assert.doesNotThrow(setting('opsAi.effort', effort));
+    }
+    assert.throws(setting('opsAi.effort', 'max'), /use low, medium, high/);
+    assert.doesNotThrow(setting('opsAi.model', '""'));
+    assert.throws(setting('opsAi.model', '42'), /use a string/);
+    assert.throws(setting('opsAi.systemPrompt', 'true'), /use a string/);
+  });
+
+  void it('validates the insight language', () => {
+    for (const language of ['en', 'de', 'es', 'ko', 'zh', 'zh-TW']) {
+      assert.doesNotThrow(setting('aiInsights.primaryLanguage', language));
+    }
+    assert.throws(setting('aiInsights.primaryLanguage', 'fr'), /use en, de, es, ko, zh, zh-TW/);
+  });
+
+  void it('accepts a list of at most 50 http or https origins without a path', () => {
+    const key = 'ai.mcp.allowedOrigins';
+    assert.doesNotThrow(setting(key, '[]'));
+    assert.doesNotThrow(
+      setting(key, '["https://agent.example.com", "http://localhost:3000", "https://[::1]:8443"]'),
+    );
+    for (const origin of [
+      'https://agent.example.com/',
+      'https://agent.example.com/mcp',
+      'ftp://agent.example.com',
+      'agent.example.com',
+      'https://agent.example.com?x=1',
+      'https://user@agent.example.com',
+    ]) {
+      assert.throws(setting(key, `["${origin}"]`), /is not an origin/, origin);
+    }
+    assert.throws(setting(key, 'https://agent.example.com'), /use a list of origins/);
+    const many = Array.from({ length: 51 }, (_, i) => `https://a${String(i)}.example.com`);
+    assert.throws(setting(key, JSON.stringify(many)), /at most 50 entries/);
+  });
+});
+
 void describe('AI upload quarantine', () => {
   void it('expires quarantined uploads and aborts their multipart uploads after one day', () => {
     for (const env of ['dev', 'prod'] as const) {

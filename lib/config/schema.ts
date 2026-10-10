@@ -63,19 +63,67 @@ const RESERVED_URL_SCHEMES = new Set([
 ]);
 // Android application id: at least two segments, each starting with a letter.
 const ANDROID_PACKAGE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
-const LIST_SETTING_KEYS = new Set([MOBILE_APP_URL_SCHEMES_KEY, MOBILE_APP_ANDROID_PACKAGES_KEY]);
+// Browser origins allowed to call the MCP endpoint: scheme://host[:port],
+// http or https, no path. The Helm chart uses the same pattern.
+const AI_MCP_ALLOWED_ORIGINS_KEY = 'ai.mcp.allowedOrigins';
+const ORIGIN_PATTERN =
+  /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$/;
+
+interface ListSettingRule {
+  listMessage: string;
+  maxEntries?: number;
+  valid: (entry: string) => boolean;
+  entryMessage: (entry: string) => string;
+}
+
+const LIST_SETTING_RULES: Record<string, ListSettingRule> = {
+  [MOBILE_APP_URL_SCHEMES_KEY]: {
+    listMessage: 'use a list of the custom URL schemes of your app builds, for example [evtivity]',
+    valid: (entry) => APP_URL_SCHEME_PATTERN.test(entry) && !RESERVED_URL_SCHEMES.has(entry),
+    entryMessage: (entry) =>
+      `${entry} is not an app URL scheme: use the lowercase scheme of the app brand, not http, https or adyencheckout`,
+  },
+  [MOBILE_APP_ANDROID_PACKAGES_KEY]: {
+    listMessage:
+      'use a list of the Android application ids of your app builds, for example [com.evtivity.driver]',
+    valid: (entry) => ANDROID_PACKAGE_PATTERN.test(entry),
+    entryMessage: (entry) =>
+      `${entry} is not an Android application id, for example com.evtivity.driver`,
+  },
+  [AI_MCP_ALLOWED_ORIGINS_KEY]: {
+    listMessage: 'use a list of origins, for example [https://agent.example.com]',
+    maxEntries: 50,
+    valid: (entry) => ORIGIN_PATTERN.test(entry),
+    entryMessage: (entry) =>
+      `${entry} is not an origin: use scheme://host[:port] with http or https and no path`,
+  },
+};
+const LIST_SETTING_KEYS = new Set(Object.keys(LIST_SETTING_RULES));
 
 // AI assistant settings. Mirrors the provider registry and the effort levels
 // in the CSMS repo (packages/api/src/services/ai/), which the Helm chart repeats.
 const AI_PROVIDERS = ['anthropic', 'openai', 'gemini', 'deepseek'];
 const AI_EFFORTS = ['low', 'medium', 'high'];
 const AI_SUPPORT_TONES = ['professional', 'friendly', 'formal'];
+const AI_LANGUAGES = ['en', 'de', 'es', 'ko', 'zh', 'zh-TW'];
+// Boolean AI settings (operations AI, insights, workers, MCP).
+const AI_BOOLEAN_KEYS = [
+  'opsAi.enabled',
+  'aiInsights.station.enabled',
+  'aiInsights.session.enabled',
+  'aiInsights.authorization.enabled',
+  'aiWorkers.networkSummary.enabled',
+  'aiWorkers.stuckSessions.enabled',
+  'aiWorkers.stuckSessions.useModel',
+  'aiWorkers.tariffAnomalies.enabled',
+  'ai.mcp.enabled',
+];
 // Replaced by <surface>.effort.
 const REMOVED_AI_SAMPLING_KEYS = new Set(
   ['chatbotAi', 'supportAi'].flatMap((s) => [`${s}.temperature`, `${s}.topP`, `${s}.topK`]),
 );
 
-/** A value in appSettings. Lists are allowed only for the mobile.app.* keys. */
+/** A value in appSettings. Lists are allowed only for the mobile.app.* keys and ai.mcp.allowedOrigins. */
 export type AppSettingValue = string | number | boolean | string[];
 
 const envName = z.enum(['dev', 'qa', 'prod']);
@@ -439,8 +487,8 @@ export const configSchema = z
 
     // Values upserted into the settings table on every database job run.
     // Non-secret settings only. Enter credentials in the dashboard.
-    // Lists only for mobile.app.urlSchemes and mobile.app.androidPackageNames,
-    // stored as JSON arrays.
+    // Lists only for mobile.app.urlSchemes, mobile.app.androidPackageNames and
+    // ai.mcp.allowedOrigins, stored as JSON arrays.
     appSettings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
       .default({}),
@@ -651,37 +699,32 @@ export const configSchema = z
     }
     for (const [key, value] of Object.entries(c.appSettings)) {
       if (LIST_SETTING_KEYS.has(key)) {
+        const rule = LIST_SETTING_RULES[key];
+        if (rule == null) continue;
         if (!Array.isArray(value)) {
+          ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: rule.listMessage });
+          continue;
+        }
+        if (rule.maxEntries != null && value.length > rule.maxEntries) {
           ctx.addIssue({
             code: 'custom',
             path: ['appSettings', key],
-            message:
-              key === MOBILE_APP_URL_SCHEMES_KEY
-                ? 'use a list of the custom URL schemes of your app builds, for example [evtivity]'
-                : 'use a list of the Android application ids of your app builds, for example [com.evtivity.driver]',
+            message: `use at most ${String(rule.maxEntries)} entries`,
           });
-          continue;
         }
         value.forEach((entry, index) => {
-          const valid =
-            key === MOBILE_APP_URL_SCHEMES_KEY
-              ? APP_URL_SCHEME_PATTERN.test(entry) && !RESERVED_URL_SCHEMES.has(entry)
-              : ANDROID_PACKAGE_PATTERN.test(entry);
-          if (valid) return;
+          if (rule.valid(entry)) return;
           ctx.addIssue({
             code: 'custom',
             path: ['appSettings', key, index],
-            message:
-              key === MOBILE_APP_URL_SCHEMES_KEY
-                ? `${entry} is not an app URL scheme: use the lowercase scheme of the app brand, not http, https or adyencheckout`
-                : `${entry} is not an Android application id, for example com.evtivity.driver`,
+            message: rule.entryMessage(entry),
           });
         });
       } else if (Array.isArray(value)) {
         ctx.addIssue({
           code: 'custom',
           path: ['appSettings', key],
-          message: `use a string, number, or boolean: lists are allowed only for ${[...LIST_SETTING_KEYS].join(' and ')}`,
+          message: `use a string, number, or boolean: lists are allowed only for ${[...LIST_SETTING_KEYS].join(', ')}`,
         });
       }
     }
@@ -808,6 +851,40 @@ export const configSchema = z
     numberIssue('ai.conversationRetentionDays', 1, 3650, true);
     numberIssue('ai.attachments.maxBytes', 1, 33_554_432, true);
     numberIssue('ai.attachments.maxPerMessage', 1, 20, true);
+    numberIssue('ai.budget.companyMonthlyTokens', 0, 1_000_000_000_000, true);
+    numberIssue('ai.budget.siteMonthlyTokens', 0, 1_000_000_000_000, true);
+    numberIssue('ai.budget.siteDailyTokens', 0, 10_000_000_000, true);
+    numberIssue('ai.budget.warnPercent', 1, 100, true);
+    numberIssue('ai.mcp.rateLimitPerMinute', 1, 10_000, true);
+    numberIssue('ai.mcp.dailyCallsPerKey', 1, 10_000_000, true);
+    numberIssue('ai.mcp.proposalTtlMinutes', 5, 1440, true);
+    numberIssue('aiInsights.debounceSeconds', 0, 3600, true);
+    numberIssue('aiInsights.cooldownMinutes', 1, 10_080, true);
+    numberIssue('aiInsights.siteIncidentThreshold', 2, 1000, true);
+    numberIssue('aiInsights.maxPerSitePerDay', 1, 10_000, true);
+    numberIssue('aiInsights.retentionDays', 1, 3650, true);
+    numberIssue('aiWorkers.stuckSessions.idleMinutes', 15, 1440, true);
+    numberIssue('aiWorkers.proposalTtlHours', 1, 168, true);
+    for (const key of AI_BOOLEAN_KEYS) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'boolean') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
+    }
+    for (const key of ['opsAi.model', 'opsAi.systemPrompt']) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'string') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use a string' });
+      }
+    }
+    const insightLanguage = c.appSettings['aiInsights.primaryLanguage'];
+    if (insightLanguage != null && !AI_LANGUAGES.includes(String(insightLanguage))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'aiInsights.primaryLanguage'],
+        message: `use ${AI_LANGUAGES.join(', ')}`,
+      });
+    }
     const supportTone = c.appSettings['supportAi.tone'];
     if (supportTone != null && !AI_SUPPORT_TONES.includes(String(supportTone))) {
       ctx.addIssue({
@@ -816,7 +893,7 @@ export const configSchema = z
         message: `use ${AI_SUPPORT_TONES.join(', ')}`,
       });
     }
-    for (const surface of ['chatbotAi', 'supportAi']) {
+    for (const surface of ['chatbotAi', 'supportAi', 'opsAi']) {
       const effort = c.appSettings[`${surface}.effort`];
       if (effort != null && !AI_EFFORTS.includes(String(effort))) {
         ctx.addIssue({
