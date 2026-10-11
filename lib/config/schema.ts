@@ -106,12 +106,14 @@ const AI_PROVIDERS = ['anthropic', 'openai', 'gemini', 'deepseek'];
 const AI_EFFORTS = ['low', 'medium', 'high'];
 const AI_SUPPORT_TONES = ['professional', 'friendly', 'formal'];
 const AI_LANGUAGES = ['en', 'de', 'es', 'ko', 'zh', 'zh-TW'];
-// Boolean AI settings (operations AI, insights, workers, MCP).
+// Boolean AI settings (operations AI, driver support AI, insights, workers, MCP).
 const AI_BOOLEAN_KEYS = [
   'opsAi.enabled',
+  'driverAi.enabled',
   'aiInsights.station.enabled',
   'aiInsights.session.enabled',
   'aiInsights.authorization.enabled',
+  'aiInsights.reservation.enabled',
   'aiWorkers.networkSummary.enabled',
   'aiWorkers.stuckSessions.enabled',
   'aiWorkers.stuckSessions.useModel',
@@ -865,13 +867,23 @@ export const configSchema = z
     numberIssue('aiInsights.retentionDays', 1, 3650, true);
     numberIssue('aiWorkers.stuckSessions.idleMinutes', 15, 1440, true);
     numberIssue('aiWorkers.proposalTtlHours', 1, 168, true);
+    // Driver support AI (v0.1.45), validated like the Helm chart and the API.
+    numberIssue('driverAi.maxCasesPerDriverPerDay', 1, 100, true);
+    numberIssue('driverAi.feedbackTimeoutHours', 1, 168, true);
+    numberIssue('ai.budget.driverDailyTokens', 0, 10_000_000_000, true);
+    numberIssue('ai.rateLimit.driverPerMinute', 1, 1000, true);
     for (const key of AI_BOOLEAN_KEYS) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
       }
     }
-    for (const key of ['opsAi.model', 'opsAi.systemPrompt']) {
+    for (const key of [
+      'opsAi.model',
+      'opsAi.systemPrompt',
+      'driverAi.model',
+      'driverAi.systemPrompt',
+    ]) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'string') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use a string' });
@@ -893,7 +905,7 @@ export const configSchema = z
         message: `use ${AI_SUPPORT_TONES.join(', ')}`,
       });
     }
-    for (const surface of ['chatbotAi', 'supportAi', 'opsAi']) {
+    for (const surface of ['chatbotAi', 'supportAi', 'opsAi', 'driverAi']) {
       const effort = c.appSettings[`${surface}.effort`];
       if (effort != null && !AI_EFFORTS.includes(String(effort))) {
         ctx.addIssue({

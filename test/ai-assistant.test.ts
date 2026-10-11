@@ -142,6 +142,17 @@ const NEW_AI_SETTINGS: Record<string, string | number | boolean | string[]> = {
   'ai.budget.siteMonthlyTokens': 0,
   'ai.budget.siteDailyTokens': 10_000_000_000,
   'ai.budget.warnPercent': 100,
+  // v0.1.45 (TC-CFG-06).
+  'driverAi.enabled': true,
+  'driverAi.provider': 'deepseek',
+  'driverAi.model': 'deepseek-test',
+  'driverAi.effort': 'high',
+  'driverAi.systemPrompt': 'Answer briefly.',
+  'driverAi.maxCasesPerDriverPerDay': 100,
+  'driverAi.feedbackTimeoutHours': 1,
+  'ai.budget.driverDailyTokens': 0,
+  'ai.rateLimit.driverPerMinute': 1000,
+  'aiInsights.reservation.enabled': false,
 };
 
 /** SETTINGS_JSON of the synthesized database job, parsed. Cross-stack values become "token". */
@@ -192,6 +203,10 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
       ['aiInsights.retentionDays', 1, 3650],
       ['aiWorkers.stuckSessions.idleMinutes', 15, 1440],
       ['aiWorkers.proposalTtlHours', 1, 168],
+      ['driverAi.maxCasesPerDriverPerDay', 1, 100],
+      ['driverAi.feedbackTimeoutHours', 1, 168],
+      ['ai.budget.driverDailyTokens', 0, 10_000_000_000],
+      ['ai.rateLimit.driverPerMinute', 1, 1000],
     ];
     for (const [key, min, max] of ranges) {
       assert.doesNotThrow(setting(key, String(min)), key);
@@ -214,6 +229,8 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
       'aiWorkers.stuckSessions.useModel',
       'aiWorkers.tariffAnomalies.enabled',
       'ai.mcp.enabled',
+      'driverAi.enabled',
+      'aiInsights.reservation.enabled',
     ]) {
       assert.doesNotThrow(setting(key, 'true'), key);
       assert.doesNotThrow(setting(key, 'false'), key);
@@ -234,6 +251,20 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
     assert.doesNotThrow(setting('opsAi.model', '""'));
     assert.throws(setting('opsAi.model', '42'), /use a string/);
     assert.throws(setting('opsAi.systemPrompt', 'true'), /use a string/);
+  });
+
+  void it('TC-CFG-06 validates the driver support AI provider, effort, model and prompt', () => {
+    for (const provider of ['anthropic', 'openai', 'gemini', 'deepseek', '""']) {
+      assert.doesNotThrow(setting('driverAi.provider', provider));
+    }
+    assert.throws(setting('driverAi.provider', 'mistral'), /unsupported AI provider mistral/);
+    for (const effort of ['low', 'medium', 'high']) {
+      assert.doesNotThrow(setting('driverAi.effort', effort));
+    }
+    assert.throws(setting('driverAi.effort', 'max'), /use low, medium, high/);
+    assert.doesNotThrow(setting('driverAi.model', '""'));
+    assert.throws(setting('driverAi.model', '42'), /use a string/);
+    assert.throws(setting('driverAi.systemPrompt', 'true'), /use a string/);
   });
 
   void it('validates the insight language', () => {
