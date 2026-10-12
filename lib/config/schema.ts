@@ -119,6 +119,7 @@ const AI_BOOLEAN_KEYS = [
   'aiWorkers.stuckSessions.useModel',
   'aiWorkers.tariffAnomalies.enabled',
   'ai.mcp.enabled',
+  'ai.mcp.allowWrites',
 ];
 // Replaced by <surface>.effort.
 const REMOVED_AI_SAMPLING_KEYS = new Set(
@@ -683,6 +684,14 @@ export const configSchema = z
           message: `removed: set ${key.slice(0, key.indexOf('.'))}.effort (low, medium, or high) instead`,
         });
       }
+      if (key === 'ai.mcp.proposalTtlMinutes') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'removed: MCP writes no longer become proposals, set ai.mcp.allowWrites (true or false) instead',
+        });
+      }
       if (key === 'chatbotAi.apiKey' || key === 'supportAi.apiKey') {
         ctx.addIssue({
           code: 'custom',
@@ -859,7 +868,6 @@ export const configSchema = z
     numberIssue('ai.budget.warnPercent', 1, 100, true);
     numberIssue('ai.mcp.rateLimitPerMinute', 1, 10_000, true);
     numberIssue('ai.mcp.dailyCallsPerKey', 1, 10_000_000, true);
-    numberIssue('ai.mcp.proposalTtlMinutes', 5, 1440, true);
     numberIssue('aiInsights.debounceSeconds', 0, 3600, true);
     numberIssue('aiInsights.cooldownMinutes', 1, 10_080, true);
     numberIssue('aiInsights.siteIncidentThreshold', 2, 1000, true);

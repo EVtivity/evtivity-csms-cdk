@@ -49,6 +49,10 @@ void describe('AI assistant settings', () => {
     }
   });
 
+  void it('rejects the removed MCP proposal TTL and names ai.mcp.allowWrites', () => {
+    assert.throws(setting('ai.mcp.proposalTtlMinutes', '30'), /set ai\.mcp\.allowWrites/);
+  });
+
   void it('rejects the removed per-surface API keys and names the per-provider key', () => {
     assert.throws(setting('chatbotAi.apiKey', 'abc'), /ai\.<provider>\.apiKeyEnc/);
     assert.throws(setting('supportAi.apiKey', 'abc'), /ai\.<provider>\.apiKeyEnc/);
@@ -136,7 +140,7 @@ const NEW_AI_SETTINGS: Record<string, string | number | boolean | string[]> = {
   'ai.mcp.enabled': true,
   'ai.mcp.rateLimitPerMinute': 10_000,
   'ai.mcp.dailyCallsPerKey': 10_000_000,
-  'ai.mcp.proposalTtlMinutes': 5,
+  'ai.mcp.allowWrites': true,
   'ai.mcp.allowedOrigins': ['https://agent.example.com', 'http://localhost:3000'],
   'ai.budget.companyMonthlyTokens': 1_000_000_000_000,
   'ai.budget.siteMonthlyTokens': 0,
@@ -195,7 +199,6 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
       ['ai.budget.warnPercent', 1, 100],
       ['ai.mcp.rateLimitPerMinute', 1, 10_000],
       ['ai.mcp.dailyCallsPerKey', 1, 10_000_000],
-      ['ai.mcp.proposalTtlMinutes', 5, 1440],
       ['aiInsights.debounceSeconds', 0, 3600],
       ['aiInsights.cooldownMinutes', 1, 10_080],
       ['aiInsights.siteIncidentThreshold', 2, 1000],
@@ -229,6 +232,7 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
       'aiWorkers.stuckSessions.useModel',
       'aiWorkers.tariffAnomalies.enabled',
       'ai.mcp.enabled',
+      'ai.mcp.allowWrites',
       'driverAi.enabled',
       'aiInsights.reservation.enabled',
     ]) {
