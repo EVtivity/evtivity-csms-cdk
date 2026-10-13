@@ -251,7 +251,13 @@ export class DbJob extends Construct {
       onEventHandler: onEvent,
       isCompleteHandler: isComplete,
       queryInterval: Duration.seconds(15),
-      totalTimeout: Duration.minutes(30),
+      // A migration can build a unique index CONCURRENTLY over a large table
+      // (CSMS v0.1.46: meter_values, about 20 to 40 minutes per 100M rows).
+      // CloudFormation gives a custom resource at most one hour, so the
+      // provider gives up just before that. A run that times out keeps
+      // building; the next deploy stops the task, the database finishes the
+      // build, and the new run waits on the migration lock, then skips it.
+      totalTimeout: Duration.minutes(55),
       logGroup: new logs.LogGroup(this, 'ProviderLogs', {
         retention: config.logs.retentionDays,
         removalPolicy: removalPolicyOf(config.logs.removal),

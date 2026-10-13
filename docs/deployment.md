@@ -36,7 +36,7 @@ What happens in the App stack on every deploy that changes the database job (new
    2. creates the `evtivity_app_group` role and the application login if missing, and grants privileges, including default privileges for future tables
    3. `npm run seed:admin` (idempotent)
    4. upserts `appSettings` plus `s3.bucket` and `s3.region` into the settings table
-2. CloudFormation waits for the task to exit. A non-zero exit fails the deployment and rolls back, so services never start against a database that failed to migrate. The error names the log stream.
+2. CloudFormation waits for the task to exit, up to 55 minutes. A non-zero exit fails the deployment and rolls back, so services never start against a database that failed to migrate. The error names the log stream. A migration that builds an index over a large table (`CREATE INDEX CONCURRENTLY`, about 20 to 40 minutes per 100 million meter value rows) can take longer: the deployment then fails while the build goes on in the database, and the next deploy completes once the build is done.
 3. Services start or update only after the job succeeds.
 
 First sign-in: the admin email is `initialAdmin.email`. The password is in the `evtivity/<env>/initial-admin` secret. The dashboard forces a password change at first sign-in.
