@@ -245,43 +245,43 @@ These keys are optional. Leave one out to keep the value set in Settings > Payme
 
 These keys are optional. Leave one out to keep the value set in the dashboard. Provider API keys are not config values: enter them in the dashboard, one per provider (`ai.<provider>.apiKeyEnc`).
 
-| Key                                        | Values                                                                                      |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `chatbotAi.provider`, `supportAi.provider` | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                       |
-| `chatbotAi.effort`, `supportAi.effort`     | `low`, `medium`, or `high`                                                                  |
-| `supportAi.tone`                           | `professional`, `friendly`, or `formal`                                                     |
-| `ai.<provider>.baseUrl`                    | Empty for the official endpoint, or an `https` URL without credentials, query, or fragment  |
-| `ai.rateLimit.userPerMinute`               | Whole number from 1 to 1000                                                                 |
-| `ai.rateLimit.sitePerMinute`               | Whole number from 1 to 100000                                                               |
-| `ai.budget.userDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                       |
-| `ai.maxToolCallsPerTurn`                   | Whole number from 1 to 100                                                                  |
-| `ai.conversationRetentionDays`             | Whole number of days from 1 to 3650                                                         |
-| `ai.attachments.maxBytes`                  | Whole number of bytes from 1 to 33554432 (32 MiB)                                           |
-| `ai.attachments.maxPerMessage`             | Whole number from 1 to 20                                                                   |
-| `opsAi.enabled`                            | Operations AI for automatic insights and AI workers: `true` or `false`                      |
-| `opsAi.provider`                           | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                       |
-| `opsAi.model`, `opsAi.systemPrompt`        | Text. Empty uses the provider's router model and the built-in prompt                        |
-| `opsAi.effort`                             | `low`, `medium`, or `high`                                                                  |
-| `aiInsights.<subject>.enabled`             | `true` or `false` for `station`, `session`, and `authorization`                             |
-| `aiInsights.debounceSeconds`               | Whole number of seconds from 0 to 3600                                                      |
-| `aiInsights.cooldownMinutes`               | Whole number of minutes from 1 to 10080                                                     |
-| `aiInsights.siteIncidentThreshold`         | Whole number of stations from 2 to 1000                                                     |
-| `aiInsights.maxPerSitePerDay`              | Whole number from 1 to 10000                                                                |
-| `aiInsights.primaryLanguage`               | `en`, `de`, `es`, `ko`, `zh`, or `zh-TW`                                                    |
-| `aiInsights.retentionDays`                 | Whole number of days from 1 to 3650                                                         |
-| `aiWorkers.<job>.enabled`                  | `true` or `false` for `networkSummary`, `stuckSessions`, and `tariffAnomalies`              |
-| `aiWorkers.stuckSessions.idleMinutes`      | Whole number of minutes from 15 to 1440                                                     |
-| `aiWorkers.stuckSessions.useModel`         | `true` or `false`                                                                           |
-| `aiWorkers.proposalTtlHours`               | Whole number of hours from 1 to 168                                                         |
-| `ai.mcp.enabled`                           | `true` or `false`                                                                           |
-| `ai.mcp.rateLimitPerMinute`                | Whole number from 1 to 10000                                                                |
-| `ai.mcp.dailyCallsPerKey`                  | Whole number from 1 to 10000000                                                             |
-| `ai.mcp.allowWrites`                       | `true` or `false`: MCP write tools run under the API key's own permissions (off: read only) |
-| `ai.mcp.allowedOrigins`                    | List of at most 50 origins, `scheme://host[:port]` with `http` or `https` and no path       |
-| `ai.budget.companyMonthlyTokens`           | Whole number from 0 to 1000000000000 (0 means no limit)                                     |
-| `ai.budget.siteMonthlyTokens`              | Whole number from 0 to 1000000000000 (0 means no limit)                                     |
-| `ai.budget.siteDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                       |
-| `ai.budget.warnPercent`                    | Whole number from 1 to 100                                                                  |
+| Key                                        | Values                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `chatbotAi.provider`, `supportAi.provider` | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                      |
+| `chatbotAi.effort`, `supportAi.effort`     | `low`, `medium`, or `high`                                                                 |
+| `supportAi.tone`                           | `professional`, `friendly`, or `formal`                                                    |
+| `ai.<provider>.baseUrl`                    | Empty for the official endpoint, or an `https` URL without credentials, query, or fragment |
+| `ai.rateLimit.userPerMinute`               | Whole number from 1 to 1000                                                                |
+| `ai.rateLimit.sitePerMinute`               | Whole number from 1 to 100000                                                              |
+| `ai.budget.userDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                      |
+| `ai.maxToolCallsPerTurn`                   | Whole number from 1 to 100                                                                 |
+| `ai.conversationRetentionDays`             | Whole number of days from 1 to 3650                                                        |
+| `ai.attachments.maxBytes`                  | Whole number of bytes from 1 to 33554432 (32 MiB)                                          |
+| `ai.attachments.maxPerMessage`             | Whole number from 1 to 20                                                                  |
+| `opsAi.enabled`                            | Operations AI for automatic insights and AI workers: `true` or `false`                     |
+| `opsAi.provider`                           | `anthropic`, `openai`, `gemini`, `deepseek`, or empty                                      |
+| `opsAi.model`, `opsAi.systemPrompt`        | Text. Empty uses the provider's router model and the built-in prompt                       |
+| `opsAi.effort`                             | `low`, `medium`, or `high`                                                                 |
+| `aiInsights.<subject>.enabled`             | `true` or `false` for `station`, `session`, and `authorization`                            |
+| `aiInsights.debounceSeconds`               | Whole number of seconds from 0 to 3600                                                     |
+| `aiInsights.cooldownMinutes`               | Whole number of minutes from 1 to 10080                                                    |
+| `aiInsights.siteIncidentThreshold`         | Whole number of stations from 2 to 1000                                                    |
+| `aiInsights.maxPerSitePerDay`              | Whole number from 1 to 10000                                                               |
+| `aiInsights.primaryLanguage`               | `en`, `de`, `es`, `ko`, `zh`, or `zh-TW`                                                   |
+| `aiInsights.retentionDays`                 | Whole number of days from 1 to 3650                                                        |
+| `aiWorkers.<job>.enabled`                  | `true` or `false` for `networkSummary`, `stuckSessions`, and `tariffAnomalies`             |
+| `aiWorkers.stuckSessions.idleMinutes`      | Whole number of minutes from 15 to 1440                                                    |
+| `aiWorkers.stuckSessions.useModel`         | `true` or `false`                                                                          |
+| `aiWorkers.proposalTtlHours`               | Whole number of hours from 1 to 168                                                        |
+| `ai.mcp.enabled`                           | `true` or `false`                                                                          |
+| `ai.mcp.rateLimitPerMinute`                | Whole number from 1 to 10000                                                               |
+| `ai.mcp.dailyCallsPerKey`                  | Whole number from 1 to 10000000                                                            |
+| `ai.mcp.proposalTtlMinutes`                | Whole number of minutes from 5 to 1440                                                     |
+| `ai.mcp.allowedOrigins`                    | List of at most 50 origins, `scheme://host[:port]` with `http` or `https` and no path      |
+| `ai.budget.companyMonthlyTokens`           | Whole number from 0 to 1000000000000 (0 means no limit)                                    |
+| `ai.budget.siteMonthlyTokens`              | Whole number from 0 to 1000000000000 (0 means no limit)                                    |
+| `ai.budget.siteDailyTokens`                | Whole number from 0 to 10000000000 (0 means no limit)                                      |
+| `ai.budget.warnPercent`                    | Whole number from 1 to 100                                                                 |
 
 The synth rejects the removed keys `chatbotAi.temperature`, `chatbotAi.topP`, `chatbotAi.topK` and the same `supportAi.*` keys (set `<surface>.effort` instead), and `chatbotAi.apiKey` and `supportAi.apiKey` (one key per provider, entered in the dashboard).
 
