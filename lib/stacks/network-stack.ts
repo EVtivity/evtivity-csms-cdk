@@ -142,9 +142,6 @@ export class NetworkStack extends Stack {
       description: `EVtivity ${config.env} NAT instance or gateway ids, for the App stack monitoring`,
       stringListValue: this.natIds,
     });
-    // App stacks deployed before 0.1.43 import these ids. Keep the exports for
-    // one release so the Network stack can update first; delete in 0.1.44.
-    for (const id of this.natIds) this.exportValue(id);
 
     // VPC flow logs (EC2.6). S3 costs about half of CloudWatch Logs ingestion
     // for this volume, and the logs bucket's expiration sets the retention.
