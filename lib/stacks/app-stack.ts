@@ -330,6 +330,9 @@ export class AppStack extends Stack {
             OCPI_SIM_PORT: '3003',
             OCPI_SIM_ROLE: 'emsp',
             OCPI_SIM_BASE_URL: `http://${internal('ocpiSim')}:3003`,
+            // The simulators call only their configured target: the OCPI
+            // URL this deployment advertises.
+            OCPI_TARGET_URL: urls.ocpi,
             OCPI_SIM_COUNTRY_CODE: 'NL',
             OCPI_SIM_PARTY_ID: 'SIM',
             OCPI_SIM_NAME: 'OCPI Simulator',
@@ -340,6 +343,9 @@ export class AppStack extends Stack {
             OCPI_SIM_PORT: '3004',
             OCPI_SIM_ROLE: 'cpo',
             OCPI_SIM_BASE_URL: `http://${internal('ocpiCpoSim')}:3004`,
+            // The simulators call only their configured target: the OCPI
+            // URL this deployment advertises.
+            OCPI_TARGET_URL: urls.ocpi,
             OCPI_SIM_COUNTRY_CODE: 'DE',
             OCPI_SIM_PARTY_ID: 'CPO',
             OCPI_SIM_NAME: 'OCPI CPO Simulator',
