@@ -874,6 +874,8 @@ export const configSchema = z
     numberIssue('aiInsights.maxPerSitePerDay', 1, 10_000, true);
     numberIssue('aiInsights.retentionDays', 1, 3650, true);
     numberIssue('aiWorkers.stuckSessions.idleMinutes', 15, 1440, true);
+    // Hours offline before a stuck session gets the CSMS end proposal (v0.1.46).
+    numberIssue('aiWorkers.stuckSessions.offlineEndAfterHours', 1, 720, true);
     numberIssue('aiWorkers.proposalTtlHours', 1, 168, true);
     // Driver support AI (v0.1.45), validated like the Helm chart and the API.
     numberIssue('driverAi.maxCasesPerDriverPerDay', 1, 100, true);
