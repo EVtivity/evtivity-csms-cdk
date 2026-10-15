@@ -873,6 +873,8 @@ export const configSchema = z
     numberIssue('aiInsights.siteIncidentThreshold', 2, 1000, true);
     numberIssue('aiInsights.maxPerSitePerDay', 1, 10_000, true);
     numberIssue('aiInsights.retentionDays', 1, 3650, true);
+    // Days before a one-off event insight still open is closed expired (v0.1.46).
+    numberIssue('aiInsights.expireAfterDays', 1, 365, true);
     numberIssue('aiWorkers.stuckSessions.idleMinutes', 15, 1440, true);
     // Hours offline before a stuck session gets the CSMS end proposal (v0.1.46).
     numberIssue('aiWorkers.stuckSessions.offlineEndAfterHours', 1, 720, true);
