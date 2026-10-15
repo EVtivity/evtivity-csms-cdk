@@ -163,6 +163,27 @@ for (const env of ENVS) {
       assert.equal(value('OCPP_AUTH_MAX_WAIT_MS'), expected(auth.maxWaitMs));
     });
 
+    void it('API and OCPI: trust the ALB in the VPC like the OCPP server', () => {
+      const containers = ofType(resources, 'AWS::ECS::TaskDefinition').flatMap(
+        (td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [],
+      );
+      const envOf = (marker: string): { Name: string; Value?: unknown }[] =>
+        (containers.find((c) => (c.Environment ?? []).some((e) => e.Name === marker))
+          ?.Environment ?? []) as { Name: string; Value?: unknown }[];
+      const value = (marker: string, name: string): unknown =>
+        envOf(marker).find((e) => e.Name === name)?.Value;
+      if (config.services.ocpp.enabled) {
+        const vpcCidr = value('OCPP_TRUSTED_PROXY_CIDRS', 'OCPP_TRUSTED_PROXY_CIDRS');
+        assert.ok(vpcCidr != null);
+        if (config.services.api.enabled) {
+          assert.deepEqual(value('COOKIE_DOMAIN', 'TRUST_PROXY'), vpcCidr);
+        }
+        if (config.services.ocpi.enabled) {
+          assert.deepEqual(value('OCPI_BUSINESS_NAME', 'TRUST_PROXY'), vpcCidr);
+        }
+      }
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

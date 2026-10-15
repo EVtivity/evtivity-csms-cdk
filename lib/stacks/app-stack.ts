@@ -232,6 +232,9 @@ export class AppStack extends Stack {
             // The dashboard reads the CSRF cookie that the API sets, so the
             // cookie must be scoped to the parent domain of both hosts.
             COOKIE_DOMAIN: zoneApex(config),
+            // The ALB sits inside the VPC: trust its X-Forwarded-For and
+            // X-Forwarded-Proto, so rate limits and audit logs see the client.
+            TRUST_PROXY: vpc.vpcCidrBlock,
             OCPP_PORT: '8080',
             OCPP_SERVER_URL: ocppUrl,
             // Public wss:// address a station gets when moved to security profile 2.
@@ -279,6 +282,9 @@ export class AppStack extends Stack {
             OCPI_COUNTRY_CODE: config.ocpi.countryCode,
             OCPI_PARTY_ID: config.ocpi.partyId,
             OCPI_BUSINESS_NAME: config.ocpi.businessName,
+            // The ALB sits inside the VPC: the client address and the Link
+            // header scheme come from its X-Forwarded-* headers.
+            TRUST_PROXY: vpc.vpcCidrBlock,
           });
           break;
         case 'csms':
