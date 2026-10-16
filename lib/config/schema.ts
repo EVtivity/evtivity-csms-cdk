@@ -126,6 +126,22 @@ const REMOVED_AI_SAMPLING_KEYS = new Set(
   ['chatbotAi', 'supportAi'].flatMap((s) => [`${s}.temperature`, `${s}.topP`, `${s}.topK`]),
 );
 
+const IBAN_FORMAT = /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/;
+const BIC_FORMAT = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/;
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+
+/** An IBAN without spaces in upper case that passes the ISO 13616 mod-97 check. */
+function isValidIban(iban: string): boolean {
+  if (!IBAN_FORMAT.test(iban)) return false;
+  let remainder = 0;
+  for (const char of iban.slice(4) + iban.slice(0, 4)) {
+    const digits = /[0-9]/.test(char) ? char : String(char.charCodeAt(0) - 55);
+    for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+  return remainder === 1;
+}
+
 /** A value in appSettings. Lists are allowed only for the mobile.app.* keys and ai.mcp.allowedOrigins. */
 export type AppSettingValue = string | number | boolean | string[];
 
@@ -884,6 +900,48 @@ export const configSchema = z
     numberIssue('driverAi.feedbackTimeoutHours', 1, 168, true);
     numberIssue('ai.budget.driverDailyTokens', 0, 10_000_000_000, true);
     numberIssue('ai.rateLimit.driverPerMinute', 1, 1000, true);
+    // Invoice payment information (v0.1.47), validated like the Helm chart and the API
+    // (`@evtivity/lib/invoice-payment`, copied because the CDK cannot import it).
+    const iban = c.appSettings['company.iban'];
+    if (iban != null && iban !== '' && (typeof iban !== 'string' || !isValidIban(iban))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'company.iban'],
+        message: 'use a valid IBAN without spaces in upper case (ISO 13616 checksum), or ""',
+      });
+    }
+    const bic = c.appSettings['company.bic'];
+    if (bic != null && bic !== '' && (typeof bic !== 'string' || !BIC_FORMAT.test(bic))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'company.bic'],
+        message: 'use a BIC of 8 or 11 letters and digits in upper case, or ""',
+      });
+    }
+    for (const [key, max] of [
+      ['company.bankAccountHolder', 70],
+      ['company.bankName', 100],
+    ] as const) {
+      const value = c.appSettings[key];
+      if (
+        value != null &&
+        (typeof value !== 'string' || CONTROL_CHARACTERS.test(value) || value.trim().length > max)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `use one line of at most ${String(max)} characters`,
+        });
+      }
+    }
+    const epcQrEnabled = c.appSettings['invoice.epcQrEnabled'];
+    if (epcQrEnabled != null && typeof epcQrEnabled !== 'boolean') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'invoice.epcQrEnabled'],
+        message: 'use true or false',
+      });
+    }
     for (const key of AI_BOOLEAN_KEYS) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {

@@ -122,6 +122,23 @@ void describe('config validation', () => {
     assert.throws(loadWith('appSettings:\n  fleet.invoiceRunDay: 29\n'), /1 to 28/);
     assert.throws(loadWith('appSettings:\n  fleet.invoiceRunDay: 2.5\n'), /whole number/);
     assert.throws(loadWith('appSettings:\n  invoice.paymentTermsDays: "30"\n'), /whole number/);
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  company.iban: DE89370400440532013000\n  company.bic: COBADEFFXXX\n' +
+          '  company.bankAccountHolder: Acme GmbH\n  company.bankName: Commerzbank\n' +
+          '  invoice.epcQrEnabled: false\n',
+      ),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  company.iban: ""\n  company.bic: ""\n'));
+    assert.throws(loadWith('appSettings:\n  company.iban: DE89370400440532013001\n'), /valid IBAN/);
+    assert.throws(loadWith('appSettings:\n  company.iban: DE89 3704 0044 0532 0130 00\n'), /IBAN/);
+    assert.throws(loadWith('appSettings:\n  company.bic: COBADEF\n'), /BIC/);
+    assert.throws(loadWith('appSettings:\n  company.bic: cobadeff\n'), /BIC/);
+    assert.throws(
+      loadWith(`appSettings:\n  company.bankAccountHolder: ${'x'.repeat(71)}\n`),
+      /at most 70/,
+    );
+    assert.throws(loadWith('appSettings:\n  invoice.epcQrEnabled: "yes"\n'), /true or false/);
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 1\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 100000000\n'));
     assert.throws(loadWith('appSettings:\n  fleet.creditReservationCents: 0\n'), /1 to 100000000/);
