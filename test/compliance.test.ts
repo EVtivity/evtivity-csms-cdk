@@ -168,8 +168,8 @@ for (const env of ENVS) {
         (td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [],
       );
       const envOf = (marker: string): { Name: string; Value?: unknown }[] =>
-        (containers.find((c) => (c.Environment ?? []).some((e) => e.Name === marker))
-          ?.Environment ?? []) as { Name: string; Value?: unknown }[];
+        containers.find((c) => (c.Environment ?? []).some((e) => e.Name === marker))?.Environment ??
+        [];
       const value = (marker: string, name: string): unknown =>
         envOf(marker).find((e) => e.Name === name)?.Value;
       if (config.services.ocpp.enabled) {
