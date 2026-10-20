@@ -183,6 +183,29 @@ void describe('config validation', () => {
       ),
     );
     assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.requiredRoles: []\n'));
+    assert.throws(
+      loadWith(
+        'appSettings:\n  security.mfa.required: all\n' +
+          '  security.mfa.emailEnabled: false\n  security.mfa.totpEnabled: false\n',
+      ),
+      /needs security.mfa.emailEnabled or security.mfa.totpEnabled/,
+    );
+    assert.throws(
+      loadWith(
+        'appSettings:\n  security.mfa.required: roles\n  security.mfa.requiredRoles: [Admin]\n' +
+          '  security.mfa.emailEnabled: false\n  security.mfa.totpEnabled: false\n',
+      ),
+      /needs security.mfa.emailEnabled or security.mfa.totpEnabled/,
+    );
+    assert.doesNotThrow(
+      loadWith('appSettings:\n  security.mfa.required: all\n  security.mfa.emailEnabled: false\n'),
+    );
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.mfa.required: "off"\n' +
+          '  security.mfa.emailEnabled: false\n  security.mfa.totpEnabled: false\n',
+      ),
+    );
     assert.throws(loadWith('appSettings:\n  security.mfa.required: some\n'), /off, all, roles/);
     assert.throws(loadWith('appSettings:\n  security.mfa.required: true\n'), /off, all, roles/);
     assert.throws(

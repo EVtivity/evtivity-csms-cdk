@@ -74,6 +74,8 @@ const ORIGIN_PATTERN =
 const MFA_REQUIRED_KEY = 'security.mfa.required';
 const MFA_REQUIRED_MODES = ['off', 'all', 'roles'];
 const MFA_REQUIRED_ROLES_KEY = 'security.mfa.requiredRoles';
+const MFA_EMAIL_ENABLED_KEY = 'security.mfa.emailEnabled';
+const MFA_TOTP_ENABLED_KEY = 'security.mfa.totpEnabled';
 
 interface ListSettingRule {
   listMessage: string;
@@ -1007,6 +1009,19 @@ export const configSchema = z
         code: 'custom',
         path: ['appSettings', MFA_REQUIRED_ROLES_KEY],
         message: `${MFA_REQUIRED_KEY} roles needs at least one role in ${MFA_REQUIRED_ROLES_KEY}`,
+      });
+    }
+    // Required MFA needs a method an operator can set up without a phone. Only keys set to
+    // false count: a key left out keeps the dashboard value, which may be on.
+    if (
+      (mfaRequired === 'all' || mfaRequired === 'roles') &&
+      c.appSettings[MFA_EMAIL_ENABLED_KEY] === false &&
+      c.appSettings[MFA_TOTP_ENABLED_KEY] === false
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', MFA_REQUIRED_KEY],
+        message: `${MFA_REQUIRED_KEY} ${mfaRequired} needs ${MFA_EMAIL_ENABLED_KEY} or ${MFA_TOTP_ENABLED_KEY}: with both false no operator without a phone can set up MFA`,
       });
     }
     for (const key of AI_BOOLEAN_KEYS) {
