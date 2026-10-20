@@ -174,6 +174,41 @@ void describe('config validation', () => {
       /5 to 1440/,
     );
     assert.throws(loadWith('appSettings:\n  security.session.driverRefreshDays: 0\n'), /1 to 365/);
+    assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.required: "off"\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.required: all\n'));
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.mfa.required: roles\n' +
+          '  security.mfa.requiredRoles: [Admin, Site Manager]\n',
+      ),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.requiredRoles: []\n'));
+    assert.throws(loadWith('appSettings:\n  security.mfa.required: some\n'), /off, all, roles/);
+    assert.throws(loadWith('appSettings:\n  security.mfa.required: true\n'), /off, all, roles/);
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.required: roles\n'),
+      /needs at least one role/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.required: roles\n  security.mfa.requiredRoles: []\n'),
+      /needs at least one role/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.requiredRoles: Admin\n'),
+      /list of role names/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.requiredRoles: [Admin, " "]\n'),
+      /not a role name/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.requiredRoles: [Admin, 7]\n'),
+      /requiredRoles/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.requiredRoles: [Admin, Admin]\n'),
+      /name each entry once/,
+    );
     assert.throws(
       loadWith('appSettings:\n  security.session.driverRefreshDays: true\n'),
       /whole number/,

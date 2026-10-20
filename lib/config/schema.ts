@@ -69,9 +69,16 @@ const AI_MCP_ALLOWED_ORIGINS_KEY = 'ai.mcp.allowedOrigins';
 const ORIGIN_PATTERN =
   /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$/;
 
+// Roles that must use MFA at operator sign-in when security.mfa.required is
+// roles. The Helm chart applies the same checks.
+const MFA_REQUIRED_KEY = 'security.mfa.required';
+const MFA_REQUIRED_MODES = ['off', 'all', 'roles'];
+const MFA_REQUIRED_ROLES_KEY = 'security.mfa.requiredRoles';
+
 interface ListSettingRule {
   listMessage: string;
   maxEntries?: number;
+  unique?: boolean;
   valid: (entry: string) => boolean;
   entryMessage: (entry: string) => string;
 }
@@ -96,6 +103,12 @@ const LIST_SETTING_RULES: Record<string, ListSettingRule> = {
     valid: (entry) => ORIGIN_PATTERN.test(entry),
     entryMessage: (entry) =>
       `${entry} is not an origin: use scheme://host[:port] with http or https and no path`,
+  },
+  [MFA_REQUIRED_ROLES_KEY]: {
+    listMessage: 'use a list of role names, for example [Admin]',
+    unique: true,
+    valid: (entry) => entry.trim() !== '',
+    entryMessage: (entry) => `"${entry}" is not a role name: use a non-empty role name`,
   },
 };
 const LIST_SETTING_KEYS = new Set(Object.keys(LIST_SETTING_RULES));
@@ -142,7 +155,10 @@ function isValidIban(iban: string): boolean {
   return remainder === 1;
 }
 
-/** A value in appSettings. Lists are allowed only for the mobile.app.* keys and ai.mcp.allowedOrigins. */
+/**
+ * A value in appSettings. Lists are allowed only for the mobile.app.* keys, ai.mcp.allowedOrigins
+ * and security.mfa.requiredRoles.
+ */
 export type AppSettingValue = string | number | boolean | string[];
 
 const envName = z.enum(['dev', 'qa', 'prod']);
@@ -506,8 +522,8 @@ export const configSchema = z
 
     // Values upserted into the settings table on every database job run.
     // Non-secret settings only. Enter credentials in the dashboard.
-    // Lists only for mobile.app.urlSchemes, mobile.app.androidPackageNames and
-    // ai.mcp.allowedOrigins, stored as JSON arrays.
+    // Lists only for mobile.app.urlSchemes, mobile.app.androidPackageNames,
+    // ai.mcp.allowedOrigins and security.mfa.requiredRoles, stored as JSON arrays.
     appSettings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
       .default({}),
@@ -739,6 +755,13 @@ export const configSchema = z
             message: `use at most ${String(rule.maxEntries)} entries`,
           });
         }
+        if (rule.unique === true && new Set(value).size !== value.length) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['appSettings', key],
+            message: 'name each entry once',
+          });
+        }
         value.forEach((entry, index) => {
           if (rule.valid(entry)) return;
           ctx.addIssue({
@@ -961,6 +984,30 @@ export const configSchema = z
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
       }
+    }
+    // Required MFA at operator sign-in (v0.1.48): off, all, or roles with at least one role in
+    // security.mfa.requiredRoles (list entries are checked with the other lists).
+    const mfaRequired = c.appSettings[MFA_REQUIRED_KEY];
+    if (
+      mfaRequired != null &&
+      (typeof mfaRequired !== 'string' || !MFA_REQUIRED_MODES.includes(mfaRequired))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', MFA_REQUIRED_KEY],
+        message: `use ${MFA_REQUIRED_MODES.join(', ')}`,
+      });
+    }
+    const mfaRequiredRoles = c.appSettings[MFA_REQUIRED_ROLES_KEY];
+    if (
+      mfaRequired === 'roles' &&
+      !(Array.isArray(mfaRequiredRoles) && mfaRequiredRoles.length > 0)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', MFA_REQUIRED_ROLES_KEY],
+        message: `${MFA_REQUIRED_KEY} roles needs at least one role in ${MFA_REQUIRED_ROLES_KEY}`,
+      });
     }
     for (const key of AI_BOOLEAN_KEYS) {
       const value = c.appSettings[key];
