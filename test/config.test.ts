@@ -139,6 +139,45 @@ void describe('config validation', () => {
       /at most 70/,
     );
     assert.throws(loadWith('appSettings:\n  invoice.epcQrEnabled: "yes"\n'), /true or false/);
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.password.minLength: 8\n' +
+          '  security.password.requireUppercase: false\n  security.password.requireLowercase: true\n' +
+          '  security.password.requireNumber: true\n  security.password.requireSymbol: true\n' +
+          '  security.session.operatorAccessMinutes: 5\n  security.session.operatorRefreshDays: 90\n' +
+          '  security.session.driverAccessMinutes: 1440\n  security.session.driverRefreshDays: 365\n',
+      ),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  security.password.minLength: 64\n'));
+    assert.throws(loadWith('appSettings:\n  security.password.minLength: 7\n'), /8 to 64/);
+    assert.throws(loadWith('appSettings:\n  security.password.minLength: 65\n'), /8 to 64/);
+    assert.throws(loadWith('appSettings:\n  security.password.minLength: 12.5\n'), /whole number/);
+    assert.throws(loadWith('appSettings:\n  security.password.minLength: "12"\n'), /whole number/);
+    assert.throws(
+      loadWith('appSettings:\n  security.password.requireSymbol: "true"\n'),
+      /true or false/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.password.requireNumber: 1\n'),
+      /true or false/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.session.operatorAccessMinutes: 4\n'),
+      /5 to 1440/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.session.operatorRefreshDays: 91\n'),
+      /1 to 90/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.session.driverAccessMinutes: 1441\n'),
+      /5 to 1440/,
+    );
+    assert.throws(loadWith('appSettings:\n  security.session.driverRefreshDays: 0\n'), /1 to 365/);
+    assert.throws(
+      loadWith('appSettings:\n  security.session.driverRefreshDays: true\n'),
+      /whole number/,
+    );
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 1\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  fleet.creditReservationCents: 100000000\n'));
     assert.throws(loadWith('appSettings:\n  fleet.creditReservationCents: 0\n'), /1 to 100000000/);

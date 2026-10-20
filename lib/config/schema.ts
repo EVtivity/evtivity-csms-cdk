@@ -942,6 +942,26 @@ export const configSchema = z
         message: 'use true or false',
       });
     }
+    // Password policy and session lifetimes (v0.1.48), validated like the Helm chart and the API
+    // (`@evtivity/lib/password-policy` and `session-lifetimes`, copied because the CDK cannot
+    // import them). Stored as JSON numbers and booleans: the API falls back to the default for a
+    // row of another type.
+    numberIssue('security.password.minLength', 8, 64, true);
+    numberIssue('security.session.operatorAccessMinutes', 5, 1440, true);
+    numberIssue('security.session.operatorRefreshDays', 1, 90, true);
+    numberIssue('security.session.driverAccessMinutes', 5, 1440, true);
+    numberIssue('security.session.driverRefreshDays', 1, 365, true);
+    for (const key of [
+      'security.password.requireUppercase',
+      'security.password.requireLowercase',
+      'security.password.requireNumber',
+      'security.password.requireSymbol',
+    ]) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'boolean') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
+    }
     for (const key of AI_BOOLEAN_KEYS) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
