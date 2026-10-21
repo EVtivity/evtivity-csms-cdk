@@ -4,7 +4,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { load } from 'js-yaml';
-import { configSchema, webauthnPortalRpNote, type Config, type EnvName } from './schema.js';
+import {
+  configSchema,
+  webauthnPortalRpNote,
+  webauthnRpIdOf,
+  type Config,
+  type EnvName,
+} from './schema.js';
 import { isSizingPreset, sizingOf, type SizingPreset } from './sizing.js';
 
 const VALID_ENVS: EnvName[] = ['dev', 'qa', 'prod'];
@@ -106,7 +112,21 @@ export function loadConfig(
   }
   const rpNote = webauthnPortalRpNote(result.data);
   if (rpNote != null) console.warn(`Note: ${rpNote}`);
-  return result.data;
+  return withWebauthnRpIdLowercased(result.data);
+}
+
+/** The config with WEBAUTHN_RP_ID deployed as the API reads it (lowercase), unset when blank. */
+function withWebauthnRpIdLowercased(config: Config): Config {
+  if (config.services.api.env['WEBAUTHN_RP_ID'] == null) return config;
+  const rpId = webauthnRpIdOf(config);
+  const env = Object.fromEntries(
+    Object.entries(config.services.api.env).filter(([name]) => name !== 'WEBAUTHN_RP_ID'),
+  );
+  if (rpId != null) env['WEBAUTHN_RP_ID'] = rpId;
+  return {
+    ...config,
+    services: { ...config.services, api: { ...config.services.api, env } },
+  };
 }
 
 /** Sizing and topology of the preset's environment, from its committed file only. */

@@ -45,6 +45,18 @@ void describe('config validation', () => {
     for (const rpId of ['dev.evtivity.com', 'evtivity.com', 'csms.dev.evtivity.com']) {
       assert.doesNotThrow(loadWith(`services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: ${rpId}\n`));
     }
+    // Case does not matter, as for the API and the Helm chart: it is deployed lowercased.
+    const upper = loadWith(
+      'services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: " Dev.EVtivity.com "\n',
+    )() as Config;
+    assert.equal(upper.services.api.env['WEBAUTHN_RP_ID'], 'dev.evtivity.com');
+    assert.equal(webauthnPortalRpNote(upper), null);
+    const blank = loadWith('services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: "  "\n')() as Config;
+    assert.equal('WEBAUTHN_RP_ID' in blank.services.api.env, false);
+    assert.throws(
+      loadWith('services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: Other.COM\n'),
+      /use the CSMS host csms.dev.evtivity.com or a parent domain/,
+    );
     for (const [rpId, message] of [
       ['other.com', /use the CSMS host csms.dev.evtivity.com or a parent domain/],
       ['vtivity.com', /use the CSMS host/],
@@ -306,6 +318,22 @@ void describe('config validation', () => {
     assert.throws(
       loadWith('appSettings:\n  security.mfa.requiredRoles: [Admin, 7]\n'),
       /requiredRoles/,
+    );
+    // The dashboard caps: at most 50 roles, each at most 100 characters.
+    const roles = (n: number) => Array.from({ length: n }, (_, k) => `Role${String(k + 1)}`);
+    assert.doesNotThrow(
+      loadWith(`appSettings:\n  security.mfa.requiredRoles: [${roles(50).join(', ')}]\n`),
+    );
+    assert.throws(
+      loadWith(`appSettings:\n  security.mfa.requiredRoles: [${roles(51).join(', ')}]\n`),
+      /use at most 50 entries/,
+    );
+    assert.doesNotThrow(
+      loadWith(`appSettings:\n  security.mfa.requiredRoles: [${'r'.repeat(100)}]\n`),
+    );
+    assert.throws(
+      loadWith(`appSettings:\n  security.mfa.requiredRoles: [Admin, ${'r'.repeat(101)}]\n`),
+      /longer than 100 characters/,
     );
     assert.throws(
       loadWith('appSettings:\n  security.mfa.requiredRoles: [Admin, Admin]\n'),

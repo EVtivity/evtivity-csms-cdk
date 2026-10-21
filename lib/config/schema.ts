@@ -81,9 +81,20 @@ const MFA_PASSKEY_LOGIN_ENABLED_KEY = 'security.mfa.passkeyLoginEnabled';
 // Every driver must use MFA at portal sign-in; the Helm chart applies the same checks.
 const MFA_REQUIRE_DRIVERS_KEY = 'security.mfa.requireDrivers';
 // WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
-// labels (not an IP address), the CSMS host or a parent domain of it. The API refuses to start
-// otherwise; the Helm chart applies the same check.
+// labels (not an IP address), the CSMS host or a parent domain of it. Case does not matter: the
+// API and the Helm chart lowercase it, and loadConfig deploys it lowercased. The API refuses to
+// start otherwise; the Helm chart applies the same check.
 const WEBAUTHN_RP_ID_ENV = 'WEBAUTHN_RP_ID';
+
+/** WEBAUTHN_RP_ID as the API reads it: trimmed and lowercased, or null when unset or blank. */
+export function webauthnRpIdOf(c: {
+  services: { api: { env: Record<string, string> } };
+}): string | null {
+  const raw = c.services.api.env[WEBAUTHN_RP_ID_ENV];
+  if (raw == null) return null;
+  const rpId = raw.trim().toLowerCase();
+  return rpId === '' ? null : rpId;
+}
 const DOMAIN_NAME_PATTERN =
   /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
@@ -116,11 +127,16 @@ const LIST_SETTING_RULES: Record<string, ListSettingRule> = {
     entryMessage: (entry) =>
       `${entry} is not an origin: use scheme://host[:port] with http or https and no path`,
   },
+  // The dashboard caps: at most 50 roles, each at most 100 characters (PUT /v1/security/mfa).
   [MFA_REQUIRED_ROLES_KEY]: {
     listMessage: 'use a list of role names, for example [Admin]',
+    maxEntries: 50,
     unique: true,
-    valid: (entry) => entry.trim() !== '',
-    entryMessage: (entry) => `"${entry}" is not a role name: use a non-empty role name`,
+    valid: (entry) => entry.trim() !== '' && entry.length <= 100,
+    entryMessage: (entry) =>
+      entry.trim() === ''
+        ? `"${entry}" is not a role name: use a non-empty role name`
+        : `"${entry}" is longer than 100 characters, the longest role name the dashboard accepts`,
   },
 };
 const LIST_SETTING_KEYS = new Set(Object.keys(LIST_SETTING_RULES));
@@ -1019,7 +1035,7 @@ export const configSchema = z
         message: `${MFA_PASSKEY_LOGIN_ENABLED_KEY} true needs ${MFA_WEBAUTHN_ENABLED_KEY}: passkey sign-in uses passkeys`,
       });
     }
-    const rpId = c.services.api.env[WEBAUTHN_RP_ID_ENV];
+    const rpId = webauthnRpIdOf(c);
     if (rpId != null) {
       const zone =
         c.domain.subdomain === '' ? c.domain.apex : `${c.domain.subdomain}.${c.domain.apex}`;
@@ -1275,7 +1291,7 @@ export type Config = z.infer<typeof configSchema>;
  * keep separate passkeys. Null otherwise.
  */
 export function webauthnPortalRpNote(c: Config): string | null {
-  const rpId = c.services.api.env[WEBAUTHN_RP_ID_ENV];
+  const rpId = webauthnRpIdOf(c);
   if (rpId == null) return null;
   const zone = c.domain.subdomain === '' ? c.domain.apex : `${c.domain.subdomain}.${c.domain.apex}`;
   const portalLabel = c.services.portal.hostname ?? SERVICE_CATALOG.portal.hostname ?? 'portal';
