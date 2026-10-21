@@ -76,6 +76,13 @@ const MFA_REQUIRED_MODES = ['off', 'all', 'roles'];
 const MFA_REQUIRED_ROLES_KEY = 'security.mfa.requiredRoles';
 const MFA_EMAIL_ENABLED_KEY = 'security.mfa.emailEnabled';
 const MFA_TOTP_ENABLED_KEY = 'security.mfa.totpEnabled';
+const MFA_WEBAUTHN_ENABLED_KEY = 'security.mfa.webauthnEnabled';
+const MFA_PASSKEY_LOGIN_ENABLED_KEY = 'security.mfa.passkeyLoginEnabled';
+// WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name, the CSMS host or a
+// parent domain of it. The API refuses to start otherwise; the Helm chart applies the same check.
+const WEBAUTHN_RP_ID_ENV = 'WEBAUTHN_RP_ID';
+const DOMAIN_NAME_PATTERN =
+  /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
 interface ListSettingRule {
   listMessage: string;
@@ -985,6 +992,44 @@ export const configSchema = z
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
+    }
+    // Passkeys and security keys (v0.1.48): stored as JSON booleans; passkey sign-in uses
+    // passkeys, so it cannot be on while they are set to false.
+    for (const key of [MFA_WEBAUTHN_ENABLED_KEY, MFA_PASSKEY_LOGIN_ENABLED_KEY]) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'boolean') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
+    }
+    if (
+      c.appSettings[MFA_PASSKEY_LOGIN_ENABLED_KEY] === true &&
+      c.appSettings[MFA_WEBAUTHN_ENABLED_KEY] === false
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', MFA_PASSKEY_LOGIN_ENABLED_KEY],
+        message: `${MFA_PASSKEY_LOGIN_ENABLED_KEY} true needs ${MFA_WEBAUTHN_ENABLED_KEY}: passkey sign-in uses passkeys`,
+      });
+    }
+    const rpId = c.services.api.env[WEBAUTHN_RP_ID_ENV];
+    if (rpId != null) {
+      const zone =
+        c.domain.subdomain === '' ? c.domain.apex : `${c.domain.subdomain}.${c.domain.apex}`;
+      const csmsLabel = c.services.csms.hostname ?? SERVICE_CATALOG.csms.hostname ?? 'csms';
+      const csmsHost = `${csmsLabel}.${zone}`.toLowerCase();
+      if (!DOMAIN_NAME_PATTERN.test(rpId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
+          message: 'use a lowercase domain name without a scheme, port or path',
+        });
+      } else if (csmsHost !== rpId && !csmsHost.endsWith(`.${rpId}`)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
+          message: `use the CSMS host ${csmsHost} or a parent domain of it`,
+        });
       }
     }
     // Required MFA at operator sign-in (v0.1.48): off, all, or roles with at least one role in

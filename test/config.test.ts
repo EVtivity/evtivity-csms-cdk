@@ -22,6 +22,41 @@ function loadWith(local: string, base: Record<string, unknown> = BASE): () => un
 }
 
 void describe('config validation', () => {
+  void it('checks the passkey settings and the WebAuthn relying party ID', () => {
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.mfa.webauthnEnabled: true\n' +
+          '  security.mfa.passkeyLoginEnabled: true\n',
+      ),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.webauthnEnabled: false\n'));
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.webauthnEnabled: "yes"\n'),
+      /use true or false/,
+    );
+    assert.throws(
+      loadWith(
+        'appSettings:\n  security.mfa.webauthnEnabled: false\n' +
+          '  security.mfa.passkeyLoginEnabled: true\n',
+      ),
+      /passkey sign-in uses passkeys/,
+    );
+    for (const rpId of ['dev.evtivity.com', 'evtivity.com', 'csms.dev.evtivity.com']) {
+      assert.doesNotThrow(loadWith(`services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: ${rpId}\n`));
+    }
+    for (const [rpId, message] of [
+      ['other.com', /use the CSMS host csms.dev.evtivity.com or a parent domain/],
+      ['vtivity.com', /use the CSMS host/],
+      ['https://evtivity.com', /domain name without a scheme/],
+      ['evtivity.com:443', /domain name without a scheme/],
+    ] as const) {
+      assert.throws(
+        loadWith(`services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: "${rpId}"\n`),
+        message,
+      );
+    }
+  });
+
   void it('loads the committed dev config with an empty local file', () => {
     assert.doesNotThrow(loadWith(''));
     assert.doesNotThrow(loadWith('# nothing here\n'));
