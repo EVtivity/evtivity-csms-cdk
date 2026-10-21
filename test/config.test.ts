@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { load } from 'js-yaml';
 import { loadConfig } from '../lib/config/load.js';
+import { webauthnPortalRpNote, type Config } from '../lib/config/schema.js';
 
 const BASE = load(readFileSync('config/dev.yaml', 'utf-8')) as Record<string, unknown>;
 
@@ -57,6 +58,47 @@ void describe('config validation', () => {
         message,
       );
     }
+  });
+
+  void it('checks required MFA for drivers', () => {
+    assert.doesNotThrow(loadWith('appSettings:\n  security.mfa.requireDrivers: true\n'));
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.mfa.requireDrivers: true\n  security.mfa.emailEnabled: false\n',
+      ),
+    );
+    assert.throws(
+      loadWith('appSettings:\n  security.mfa.requireDrivers: "true"\n'),
+      /use true or false/,
+    );
+    assert.throws(
+      loadWith(
+        'appSettings:\n  security.mfa.requireDrivers: true\n' +
+          '  security.mfa.emailEnabled: false\n  security.mfa.totpEnabled: false\n',
+      ),
+      /no driver without a phone can set up MFA/,
+    );
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  security.mfa.requireDrivers: false\n' +
+          '  security.mfa.emailEnabled: false\n  security.mfa.totpEnabled: false\n',
+      ),
+    );
+  });
+
+  void it('notes when the WebAuthn relying party ID does not serve the portal', () => {
+    const shared = loadWith(
+      'services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: dev.evtivity.com\n',
+    )();
+    assert.equal(webauthnPortalRpNote(shared as Config), null);
+    const csmsOnly = loadWith(
+      'services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: csms.dev.evtivity.com\n',
+    )();
+    assert.match(
+      webauthnPortalRpNote(csmsOnly as Config) ?? '',
+      /portal uses portal\.dev\.evtivity\.com as its passkey relying party/,
+    );
+    assert.equal(webauthnPortalRpNote(loadWith('')() as Config), null);
   });
 
   void it('loads the committed dev config with an empty local file', () => {

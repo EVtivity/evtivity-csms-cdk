@@ -78,6 +78,8 @@ const MFA_EMAIL_ENABLED_KEY = 'security.mfa.emailEnabled';
 const MFA_TOTP_ENABLED_KEY = 'security.mfa.totpEnabled';
 const MFA_WEBAUTHN_ENABLED_KEY = 'security.mfa.webauthnEnabled';
 const MFA_PASSKEY_LOGIN_ENABLED_KEY = 'security.mfa.passkeyLoginEnabled';
+// Every driver must use MFA at portal sign-in; the Helm chart applies the same checks.
+const MFA_REQUIRE_DRIVERS_KEY = 'security.mfa.requireDrivers';
 // WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
 // labels (not an IP address), the CSMS host or a parent domain of it. The API refuses to start
 // otherwise; the Helm chart applies the same check.
@@ -997,7 +999,11 @@ export const configSchema = z
     }
     // Passkeys and security keys (v0.1.48): stored as JSON booleans; passkey sign-in uses
     // passkeys, so it cannot be on while they are set to false.
-    for (const key of [MFA_WEBAUTHN_ENABLED_KEY, MFA_PASSKEY_LOGIN_ENABLED_KEY]) {
+    for (const key of [
+      MFA_WEBAUTHN_ENABLED_KEY,
+      MFA_PASSKEY_LOGIN_ENABLED_KEY,
+      MFA_REQUIRE_DRIVERS_KEY,
+    ]) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
@@ -1088,6 +1094,17 @@ export const configSchema = z
         code: 'custom',
         path: ['appSettings', MFA_REQUIRED_KEY],
         message: `${MFA_REQUIRED_KEY} ${mfaRequired} needs ${MFA_EMAIL_ENABLED_KEY} or ${MFA_TOTP_ENABLED_KEY}: with both false no operator without a phone can set up MFA`,
+      });
+    }
+    if (
+      c.appSettings[MFA_REQUIRE_DRIVERS_KEY] === true &&
+      c.appSettings[MFA_EMAIL_ENABLED_KEY] === false &&
+      c.appSettings[MFA_TOTP_ENABLED_KEY] === false
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', MFA_REQUIRE_DRIVERS_KEY],
+        message: `${MFA_REQUIRE_DRIVERS_KEY} true needs ${MFA_EMAIL_ENABLED_KEY} or ${MFA_TOTP_ENABLED_KEY}: with both false no driver without a phone can set up MFA`,
       });
     }
     for (const key of AI_BOOLEAN_KEYS) {
@@ -1251,3 +1268,18 @@ export const configSchema = z
   });
 
 export type Config = z.infer<typeof configSchema>;
+
+/**
+ * A note when WEBAUTHN_RP_ID is set and is not the portal host or a parent domain of it:
+ * the API then uses the portal host as the driver relying party, so drivers and operators
+ * keep separate passkeys. Null otherwise.
+ */
+export function webauthnPortalRpNote(c: Config): string | null {
+  const rpId = c.services.api.env[WEBAUTHN_RP_ID_ENV];
+  if (rpId == null) return null;
+  const zone = c.domain.subdomain === '' ? c.domain.apex : `${c.domain.subdomain}.${c.domain.apex}`;
+  const portalLabel = c.services.portal.hostname ?? SERVICE_CATALOG.portal.hostname ?? 'portal';
+  const portalHost = `${portalLabel}.${zone}`.toLowerCase();
+  if (portalHost === rpId || portalHost.endsWith(`.${rpId}`)) return null;
+  return `WEBAUTHN_RP_ID ${rpId} is not the portal host ${portalHost} or a parent domain of it: the portal uses ${portalHost} as its passkey relying party, so drivers and operators keep separate passkeys`;
+}

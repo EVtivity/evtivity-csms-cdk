@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { load } from 'js-yaml';
-import { configSchema, type Config, type EnvName } from './schema.js';
+import { configSchema, webauthnPortalRpNote, type Config, type EnvName } from './schema.js';
 import { isSizingPreset, sizingOf, type SizingPreset } from './sizing.js';
 
 const VALID_ENVS: EnvName[] = ['dev', 'qa', 'prod'];
@@ -104,6 +104,8 @@ export function loadConfig(
       .join('\n');
     throw new Error(`Invalid config (sources: ${sources.join(', ')}):\n${issues}`);
   }
+  const rpNote = webauthnPortalRpNote(result.data);
+  if (rpNote != null) console.warn(`Note: ${rpNote}`);
   return result.data;
 }
 
