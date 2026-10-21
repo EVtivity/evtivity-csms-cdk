@@ -78,8 +78,9 @@ const MFA_EMAIL_ENABLED_KEY = 'security.mfa.emailEnabled';
 const MFA_TOTP_ENABLED_KEY = 'security.mfa.totpEnabled';
 const MFA_WEBAUTHN_ENABLED_KEY = 'security.mfa.webauthnEnabled';
 const MFA_PASSKEY_LOGIN_ENABLED_KEY = 'security.mfa.passkeyLoginEnabled';
-// WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name, the CSMS host or a
-// parent domain of it. The API refuses to start otherwise; the Helm chart applies the same check.
+// WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
+// labels (not an IP address), the CSMS host or a parent domain of it. The API refuses to start
+// otherwise; the Helm chart applies the same check.
 const WEBAUTHN_RP_ID_ENV = 'WEBAUTHN_RP_ID';
 const DOMAIN_NAME_PATTERN =
   /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
@@ -1023,6 +1024,26 @@ export const configSchema = z
           code: 'custom',
           path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
           message: 'use a lowercase domain name without a scheme, port or path',
+        });
+      } else if (/(^|\.)\d+$/.test(rpId)) {
+        // Browsers refuse an IP address as a relying party ID.
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
+          message: 'use a domain name, not an IP address',
+        });
+      } else if (!rpId.includes('.') && rpId !== 'localhost') {
+        // A single label (com, intranet) is a public suffix or a bare host name.
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
+          message: 'use a domain name with at least two labels (example.com), or localhost',
+        });
+      } else if (/^[\d.]+$/.test(csmsHost) || csmsHost.includes(':')) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['services', 'api', 'env', WEBAUTHN_RP_ID_ENV],
+          message: `the CSMS host ${csmsHost} is an IP address: passkeys need a domain name`,
         });
       } else if (csmsHost !== rpId && !csmsHost.endsWith(`.${rpId}`)) {
         ctx.addIssue({

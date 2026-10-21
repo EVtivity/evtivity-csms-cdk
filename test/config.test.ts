@@ -49,6 +49,8 @@ void describe('config validation', () => {
       ['vtivity.com', /use the CSMS host/],
       ['https://evtivity.com', /domain name without a scheme/],
       ['evtivity.com:443', /domain name without a scheme/],
+      ['com', /at least two labels/],
+      ['10.0.0.5', /not an IP address/],
     ] as const) {
       assert.throws(
         loadWith(`services:\n  api:\n    env:\n      WEBAUTHN_RP_ID: "${rpId}"\n`),
