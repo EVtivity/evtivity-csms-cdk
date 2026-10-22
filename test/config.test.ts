@@ -541,4 +541,119 @@ void describe('config validation', () => {
       /NOTIFICATIONS_ALLOW_TEST_SINK is not allowed/,
     );
   });
+
+  void it('refuses the SIM provider mock in every service and environment', () => {
+    for (const env of ['dev', 'qa', 'prod'] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'evt-config-'));
+      writeFileSync(join(dir, `${env}.yaml`), readFileSync(`config/${env}.yaml`, 'utf-8'));
+      const loadEnv = (local: string) => () => {
+        writeFileSync(join(dir, `${env}.local.yaml`), local);
+        return loadConfig(env, dir);
+      };
+      assert.doesNotThrow(loadEnv(''));
+      for (const service of ['api', 'ocpp', 'worker', 'ocpi']) {
+        for (const block of ['env', 'secrets']) {
+          assert.throws(
+            loadEnv(
+              `services:\n  ${service}:\n    ${block}:\n      SIM_PROVIDER_TEST_BASE_URL: http://sim-mock:8080\n`,
+            ),
+            /SIM_PROVIDER_TEST_BASE_URL is not allowed/,
+            `${env} ${service} ${block}`,
+          );
+        }
+      }
+      // An empty value is refused too: the name alone is not allowed.
+      assert.throws(
+        loadEnv("services:\n  api:\n    env:\n      SIM_PROVIDER_TEST_BASE_URL: ''\n"),
+        /SIM_PROVIDER_TEST_BASE_URL is not allowed/,
+      );
+    }
+    // A disabled service is refused too, so enabling it later cannot slip the mock in.
+    assert.throws(
+      loadWith(
+        'services:\n  ocpiSim:\n    enabled: false\n    env:\n      SIM_PROVIDER_TEST_BASE_URL: http://sim-mock:8080\n',
+      ),
+      /SIM_PROVIDER_TEST_BASE_URL is not allowed/,
+    );
+  });
+
+  void it('checks the SIM provider settings', () => {
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  sim.hologram.enabled: true\n  sim.hologram.orgId: "012345"\n' +
+          '  sim.sessions.retentionDays: 730\n  sim.sessions.fetchDays: 1\n' +
+          '  sim.stationSignal.enabled: false\n  sim.signal.alertBelowDbm: -110\n' +
+          '  sim.ocpp16.signalKeys: [SignalStrength, Vendor.Rssi]\n' +
+          '  sim.signal.goodDbm: -40\n  sim.signal.fairDbm: -140\n',
+      ),
+    );
+    assert.doesNotThrow(
+      loadWith('appSettings:\n  sim.sessions.retentionDays: 7\n  sim.sessions.fetchDays: 31\n'),
+    );
+    assert.doesNotThrow(loadWith('appSettings:\n  sim.ocpp16.signalKeys: []\n'));
+    // The API key is a secret entered in the dashboard.
+    assert.throws(
+      loadWith('appSettings:\n  sim.hologram.apiKeyEnc: secret\n'),
+      /must be entered in the dashboard/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.hologram.apiKey: secret\n'),
+      /must be entered in the dashboard/,
+    );
+    for (const key of ['sim.hologram.enabled', 'sim.stationSignal.enabled']) {
+      assert.throws(loadWith(`appSettings:\n  ${key}: "true"\n`), /true or false/, key);
+    }
+    assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: 12345\n'), /1 to 15 digits/);
+    assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: org-12\n'), /1 to 15 digits/);
+    assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: ""\n'), /1 to 15 digits/);
+    assert.throws(
+      loadWith('appSettings:\n  sim.hologram.orgId: "1234567890123456"\n'),
+      /1 to 15 digits/,
+    );
+    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: 6\n'), /7 to 730/);
+    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: 731\n'), /7 to 730/);
+    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: "90"\n'), /7 to 730/);
+    assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 0\n'), /1 to 31/);
+    assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 32\n'), /1 to 31/);
+    assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 1.5\n'), /whole number/);
+    for (const key of ['sim.signal.alertBelowDbm', 'sim.signal.goodDbm', 'sim.signal.fairDbm']) {
+      assert.throws(loadWith(`appSettings:\n  ${key}: -141\n`), /-140 to -40/, key);
+      assert.throws(loadWith(`appSettings:\n  ${key}: -39\n`), /-140 to -40/, key);
+      assert.throws(loadWith(`appSettings:\n  ${key}: ""\n`), /-140 to -40/, key);
+    }
+    assert.throws(
+      loadWith('appSettings:\n  sim.signal.goodDbm: -85\n  sim.signal.fairDbm: -85\n'),
+      /sim.signal.goodDbm must be above sim.signal.fairDbm/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.signal.goodDbm: -90\n  sim.signal.fairDbm: -80\n'),
+      /sim.signal.goodDbm must be above sim.signal.fairDbm/,
+    );
+    const keys = (n: number) => Array.from({ length: n }, (_, i) => `K${String(i + 1)}`);
+    assert.doesNotThrow(
+      loadWith(`appSettings:\n  sim.ocpp16.signalKeys: [${keys(20).join(', ')}]\n`),
+    );
+    assert.throws(
+      loadWith(`appSettings:\n  sim.ocpp16.signalKeys: [${keys(21).join(', ')}]\n`),
+      /at most 20/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.ocpp16.signalKeys: SignalStrength\n'),
+      /OCPP 1.6 configuration key names/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.ocpp16.signalKeys: [Rssi, " "]\n'),
+      /not a configuration key name/,
+    );
+    assert.throws(loadWith('appSettings:\n  sim.ocpp16.signalKeys: [Rssi, 7]\n'), /signalKeys/);
+    assert.doesNotThrow(loadWith(`appSettings:\n  sim.ocpp16.signalKeys: [${'k'.repeat(50)}]\n`));
+    assert.throws(
+      loadWith(`appSettings:\n  sim.ocpp16.signalKeys: [${'k'.repeat(51)}]\n`),
+      /longer than 50 characters/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.ocpp16.signalKeys: [Rssi, Rssi]\n'),
+      /name each entry once/,
+    );
+  });
 });

@@ -219,6 +219,10 @@ Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which all
 
 `NOTIFICATIONS_ALLOW_TEST_SINK` and `NOTIFICATIONS_TEST_SINK_URL` send driver SMS and push to a local development service instead of Twilio and Expo. They are for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets either one, in every environment. The services also refuse them under `NODE_ENV=production`, which the stack sets.
 
+### SIM provider mock: refused
+
+`SIM_PROVIDER_TEST_BASE_URL` points the SIM provider adapters at a local mock server, which would receive the SIM provider credentials. It is for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets it, in every environment. The API also refuses it under `NODE_ENV=production`, which the stack sets.
+
 ### Conformance OCSP responder: `octt.ocspResponder`
 
 Conformance (OCTT) runs started from the dashboard run in the worker. With this on, the worker starts the Test System OCSP responder on port 7110 during a run, `OCTT_OCSP_RESPONDER_URL` points the test certificates at `http://worker.<env>.evtivity.internal:7110/ocsp`, and the ocpp service may reach that port. The run adds the worker host to `pnc.ocsp.allowedPrivateHosts` while it runs. Off by default (TC_C_50, TC_C_51, TC_C_52, and TC_M_24 are then skipped). It needs exactly one worker task, so the synth fails with `services.worker.desiredCount` above 1 or autoscaling. dev turns it on.
@@ -303,6 +307,23 @@ appSettings:
 ```
 
 The synth applies the same rules as the CSMS validators and the Helm chart.
+
+### SIM provider settings in `appSettings`
+
+SIM providers and the station signal read are off on a fresh install: nothing calls a SIM provider or reads a station until a switch is on. Leave a key out to keep the value set in Settings > Integrations > SIM Providers. The Hologram API key is a secret entered in the dashboard: the synth fails on `sim.hologram.apiKeyEnc` and `sim.hologram.apiKey`.
+
+| Key                                        | Values                                                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `sim.hologram.enabled`                     | `true` or `false`                                                                             |
+| `sim.hologram.orgId`                       | Hologram organization id, a quoted string of 1 to 15 digits                                   |
+| `sim.sessions.retentionDays`               | Whole number from 7 to 730 (90 on a fresh install)                                            |
+| `sim.sessions.fetchDays`                   | Whole number from 1 to 31, the default period of a Refresh (7 on a fresh install)             |
+| `sim.stationSignal.enabled`                | `true` or `false`                                                                             |
+| `sim.signal.alertBelowDbm`                 | Low signal alert threshold, whole number from -140 to -40 (off on a fresh install)            |
+| `sim.ocpp16.signalKeys`                    | List of OCPP 1.6 configuration key names, at most 20, each at most 50 characters, listed once |
+| `sim.signal.goodDbm`, `sim.signal.fairDbm` | Whole numbers from -140 to -40, good above fair (-65 and -85 on a fresh install)              |
+
+The synth applies the same rules as the CSMS settings route and the Helm chart.
 
 ## Observability and alerts
 

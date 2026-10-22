@@ -80,6 +80,14 @@ const MFA_WEBAUTHN_ENABLED_KEY = 'security.mfa.webauthnEnabled';
 const MFA_PASSKEY_LOGIN_ENABLED_KEY = 'security.mfa.passkeyLoginEnabled';
 // Every driver must use MFA at portal sign-in; the Helm chart applies the same checks.
 const MFA_REQUIRE_DRIVERS_KEY = 'security.mfa.requireDrivers';
+// SIM providers and station signal (v0.1.48), the limits of the CSMS `@evtivity/lib/sim-settings`
+// and the Hologram adapter, copied because the CDK cannot import them (change both together).
+// The Helm chart applies the same checks.
+const SIM_OCPP16_SIGNAL_KEYS_KEY = 'sim.ocpp16.signalKeys';
+const SIM_HOLOGRAM_ORG_ID_KEY = 'sim.hologram.orgId';
+const SIM_HOLOGRAM_ORG_ID_PATTERN = /^\d{1,15}$/;
+const SIM_SIGNAL_GOOD_DBM_KEY = 'sim.signal.goodDbm';
+const SIM_SIGNAL_FAIR_DBM_KEY = 'sim.signal.fairDbm';
 // WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
 // labels (not an IP address), the CSMS host or a parent domain of it. Case does not matter: the
 // API and the Helm chart lowercase it, and loadConfig deploys it lowercased. The API refuses to
@@ -138,6 +146,18 @@ const LIST_SETTING_RULES: Record<string, ListSettingRule> = {
         ? `"${entry}" is not a role name: use a non-empty role name`
         : `"${entry}" is longer than 100 characters, the longest role name the dashboard accepts`,
   },
+  // OCPP 1.6 configuration keys read for the station signal: at most 20, each at most 50
+  // characters (CiString50), as PUT /v1/settings/sim-providers accepts.
+  [SIM_OCPP16_SIGNAL_KEYS_KEY]: {
+    listMessage: 'use a list of OCPP 1.6 configuration key names, for example [SignalStrength]',
+    maxEntries: 20,
+    unique: true,
+    valid: (entry) => entry.trim() !== '' && entry.trim().length <= 50,
+    entryMessage: (entry) =>
+      entry.trim() === ''
+        ? `"${entry}" is not a configuration key name: use a non-empty key name`
+        : `"${entry}" is longer than 50 characters, the longest OCPP 1.6 configuration key`,
+  },
 };
 const LIST_SETTING_KEYS = new Set(Object.keys(LIST_SETTING_RULES));
 
@@ -184,8 +204,8 @@ function isValidIban(iban: string): boolean {
 }
 
 /**
- * A value in appSettings. Lists are allowed only for the mobile.app.* keys, ai.mcp.allowedOrigins
- * and security.mfa.requiredRoles.
+ * A value in appSettings. Lists are allowed only for the mobile.app.* keys, ai.mcp.allowedOrigins,
+ * security.mfa.requiredRoles and sim.ocpp16.signalKeys.
  */
 export type AppSettingValue = string | number | boolean | string[];
 
@@ -219,6 +239,9 @@ const NOTIFICATION_TEST_SINK_VARS = [
   'NOTIFICATIONS_ALLOW_TEST_SINK',
   'NOTIFICATIONS_TEST_SINK_URL',
 ] as const;
+
+/** Env var that points the CSMS SIM provider adapters at a local mock, refused in every environment. */
+const SIM_PROVIDER_TEST_BASE_URL = 'SIM_PROVIDER_TEST_BASE_URL';
 
 const autoscaling = z
   .strictObject({
@@ -665,6 +688,14 @@ export const configSchema = z
             });
           }
         }
+        // The SIM provider mock would receive the SIM provider credentials: local stack only.
+        if (SIM_PROVIDER_TEST_BASE_URL in c.services[name][block]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['services', name, block, SIM_PROVIDER_TEST_BASE_URL],
+            message: `${SIM_PROVIDER_TEST_BASE_URL} is not allowed: the SIM provider mock is for the local development stack only`,
+          });
+        }
       }
     }
     for (const name of SERVICE_NAMES) {
@@ -758,6 +789,14 @@ export const configSchema = z
           path: ['appSettings', key],
           message:
             'removed: API keys are stored once per provider as ai.<provider>.apiKeyEnc, entered in the dashboard',
+        });
+      }
+      if (key === 'sim.hologram.apiKey') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'credentials must be entered in the dashboard: the Hologram API key is stored as sim.hologram.apiKeyEnc',
         });
       }
       if (key === 'stripe.preAuthAmountCents' || key === 'stripe.platformFeePercent') {
@@ -1012,6 +1051,40 @@ export const configSchema = z
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
       }
+    }
+    // SIM providers and station signal (v0.1.48), validated like the Helm chart and
+    // PUT /v1/settings/sim-providers. Stored as JSON booleans, numbers and a string: the API takes
+    // the default for a row of another type. The low signal alert is turned off in the dashboard.
+    numberIssue('sim.sessions.retentionDays', 7, 730, true);
+    numberIssue('sim.sessions.fetchDays', 1, 31, true);
+    numberIssue('sim.signal.alertBelowDbm', -140, -40, true);
+    numberIssue(SIM_SIGNAL_GOOD_DBM_KEY, -140, -40, true);
+    numberIssue(SIM_SIGNAL_FAIR_DBM_KEY, -140, -40, true);
+    for (const key of ['sim.hologram.enabled', 'sim.stationSignal.enabled']) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'boolean') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
+    }
+    const simOrgId = c.appSettings[SIM_HOLOGRAM_ORG_ID_KEY];
+    if (
+      simOrgId != null &&
+      (typeof simOrgId !== 'string' || !SIM_HOLOGRAM_ORG_ID_PATTERN.test(simOrgId))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', SIM_HOLOGRAM_ORG_ID_KEY],
+        message: 'use the Hologram organization id as a quoted string of 1 to 15 digits',
+      });
+    }
+    const goodDbm = c.appSettings[SIM_SIGNAL_GOOD_DBM_KEY];
+    const fairDbm = c.appSettings[SIM_SIGNAL_FAIR_DBM_KEY];
+    if (typeof goodDbm === 'number' && typeof fairDbm === 'number' && goodDbm <= fairDbm) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', SIM_SIGNAL_GOOD_DBM_KEY],
+        message: `${SIM_SIGNAL_GOOD_DBM_KEY} must be above ${SIM_SIGNAL_FAIR_DBM_KEY}`,
+      });
     }
     // Passkeys and security keys (v0.1.48): stored as JSON booleans; passkey sign-in uses
     // passkeys, so it cannot be on while they are set to false.
