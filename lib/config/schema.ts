@@ -187,6 +187,27 @@ const REMOVED_AI_SAMPLING_KEYS = new Set(
   ['chatbotAi', 'supportAi'].flatMap((s) => [`${s}.temperature`, `${s}.topP`, `${s}.topK`]),
 );
 
+// Data retention is set in the CSMS under Settings > Data Retention (v0.1.48):
+// a deploy no longer writes these keys, so an old value fails the config load.
+const DATA_RETENTION_KEYS = new Set([
+  'audit.retentionDays',
+  'refreshTokens.retentionDays',
+  'logs.access.retentionDays',
+  'logs.ocppMessage.retentionDays',
+  'logs.domainEvents.retentionDays',
+  'logs.meterValues.retentionDays',
+  'logs.connection.retentionDays',
+  'logs.notifications.retentionDays',
+  'logs.securityEvents.retentionDays',
+  'logs.portStatus.retentionDays',
+  'logs.workerJob.retentionDays',
+  'logs.loadAllocation.retentionDays',
+  'logs.loginAudit.retentionDays',
+  'sim.sessions.retentionDays',
+  'ai.conversationRetentionDays',
+  'aiInsights.retentionDays',
+]);
+
 const IBAN_FORMAT = /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/;
 const BIC_FORMAT = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/;
 // eslint-disable-next-line no-control-regex
@@ -783,6 +804,14 @@ export const configSchema = z
           message: 'credentials (keys ending in Enc) must be entered in the dashboard',
         });
       }
+      if (DATA_RETENTION_KEYS.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'removed: data retention is set in the CSMS under Settings > Data Retention, not in appSettings',
+        });
+      }
       if (key === 'stripe.currency' || key === 'pricing.currency') {
         ctx.addIssue({
           code: 'custom',
@@ -1024,7 +1053,6 @@ export const configSchema = z
     numberIssue('ai.rateLimit.sitePerMinute', 1, 100_000, true);
     numberIssue('ai.budget.userDailyTokens', 0, 10_000_000_000, true);
     numberIssue('ai.maxToolCallsPerTurn', 1, 100, true);
-    numberIssue('ai.conversationRetentionDays', 1, 3650, true);
     numberIssue('ai.attachments.maxBytes', 1, 33_554_432, true);
     numberIssue('ai.attachments.maxPerMessage', 1, 20, true);
     numberIssue('ai.budget.companyMonthlyTokens', 0, 1_000_000_000_000, true);
@@ -1037,7 +1065,6 @@ export const configSchema = z
     numberIssue('aiInsights.cooldownMinutes', 1, 10_080, true);
     numberIssue('aiInsights.siteIncidentThreshold', 2, 1000, true);
     numberIssue('aiInsights.maxPerSitePerDay', 1, 10_000, true);
-    numberIssue('aiInsights.retentionDays', 1, 3650, true);
     // Days before a one-off event insight still open is closed expired (v0.1.46).
     numberIssue('aiInsights.expireAfterDays', 1, 365, true);
     numberIssue('aiWorkers.stuckSessions.idleMinutes', 15, 1440, true);
@@ -1114,7 +1141,6 @@ export const configSchema = z
     // SIM providers and station signal (v0.1.48), validated like the Helm chart and
     // PUT /v1/settings/sim-providers. Stored as JSON booleans, numbers and a string: the API takes
     // the default for a row of another type. The low signal alert is turned off in the dashboard.
-    numberIssue('sim.sessions.retentionDays', 7, 730, true);
     numberIssue('sim.sessions.fetchDays', 1, 31, true);
     numberIssue('sim.signal.alertBelowDbm', -140, -40, true);
     numberIssue(SIM_SIGNAL_GOOD_DBM_KEY, -140, -40, true);

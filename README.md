@@ -207,7 +207,7 @@ Grafana's EVtivity folder has dashboards for system metrics, business metrics, l
 
 Aurora storage grows with the data and is billed by the amount stored. Every OCPP message is a row in `ocpp_message_logs`, heartbeats included, and every meter reading is a row in `meter_values`. On a test network of about 2,000 simulated stations that stayed connected, the database reached 90 GB: 57 GB in `ocpp_message_logs` and 32 GB in `meter_values`. The simulator in chaos mode and the demo data (`seedDemo`, 2,000 stations) produce this kind of volume.
 
-Set shorter retention in `appSettings`, for example `logs.ocppMessage.retentionDays: 14` and `logs.meterValues.retentionDays: 30` (defaults 30 and 90). Each deploy writes them. See [Data Retention](https://evtivity.com/docs/configuration/data-retention) for every retention setting.
+Set shorter retention for these tables in the CSMS under **Settings > Data Retention** (defaults 30 days for OCPP messages and 90 for meter values). `appSettings` refuses the data retention keys (`logs.*.retentionDays`, `audit.retentionDays`, `refreshTokens.retentionDays`, `sim.sessions.retentionDays`, `ai.conversationRetentionDays`, `aiInsights.retentionDays`). The CDK config keeps only the AWS retention: CloudWatch logs (`logs.retentionDays`), database backups (`aurora.backupRetentionDays`) and cache snapshots (`valkey.snapshotRetentionDays`). See [Data Retention](https://evtivity.com/docs/configuration/data-retention) for every retention setting.
 
 ### WAF
 

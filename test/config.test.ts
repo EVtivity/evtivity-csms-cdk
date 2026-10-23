@@ -626,19 +626,44 @@ void describe('config validation', () => {
     );
   });
 
+  void it('refuses the data retention keys: they are set in Settings > Data Retention', () => {
+    for (const key of [
+      'audit.retentionDays',
+      'refreshTokens.retentionDays',
+      'logs.access.retentionDays',
+      'logs.ocppMessage.retentionDays',
+      'logs.domainEvents.retentionDays',
+      'logs.meterValues.retentionDays',
+      'logs.connection.retentionDays',
+      'logs.notifications.retentionDays',
+      'logs.securityEvents.retentionDays',
+      'logs.portStatus.retentionDays',
+      'logs.workerJob.retentionDays',
+      'logs.loadAllocation.retentionDays',
+      'logs.loginAudit.retentionDays',
+      'sim.sessions.retentionDays',
+      'ai.conversationRetentionDays',
+      'aiInsights.retentionDays',
+    ]) {
+      assert.throws(
+        loadWith(`appSettings:\n  ${key}: 90\n`),
+        /data retention is set in the CSMS under Settings > Data Retention/,
+        key,
+      );
+    }
+  });
+
   void it('checks the SIM provider settings', () => {
     assert.doesNotThrow(
       loadWith(
         'appSettings:\n  sim.hologram.enabled: true\n  sim.hologram.orgId: "012345"\n' +
-          '  sim.sessions.retentionDays: 730\n  sim.sessions.fetchDays: 1\n' +
+          '  sim.sessions.fetchDays: 1\n' +
           '  sim.stationSignal.enabled: false\n  sim.signal.alertBelowDbm: -110\n' +
           '  sim.ocpp16.signalKeys: [SignalStrength, Vendor.Rssi]\n' +
           '  sim.signal.goodDbm: -40\n  sim.signal.fairDbm: -140\n',
       ),
     );
-    assert.doesNotThrow(
-      loadWith('appSettings:\n  sim.sessions.retentionDays: 7\n  sim.sessions.fetchDays: 31\n'),
-    );
+    assert.doesNotThrow(loadWith('appSettings:\n  sim.sessions.fetchDays: 31\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  sim.ocpp16.signalKeys: []\n'));
     // The API key is a secret entered in the dashboard.
     assert.throws(
@@ -659,9 +684,6 @@ void describe('config validation', () => {
       loadWith('appSettings:\n  sim.hologram.orgId: "1234567890123456"\n'),
       /1 to 15 digits/,
     );
-    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: 6\n'), /7 to 730/);
-    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: 731\n'), /7 to 730/);
-    assert.throws(loadWith('appSettings:\n  sim.sessions.retentionDays: "90"\n'), /7 to 730/);
     assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 0\n'), /1 to 31/);
     assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 32\n'), /1 to 31/);
     assert.throws(loadWith('appSettings:\n  sim.sessions.fetchDays: 1.5\n'), /whole number/);

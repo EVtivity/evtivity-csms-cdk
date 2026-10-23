@@ -93,7 +93,6 @@ void describe('AI assistant settings', () => {
       ['ai.rateLimit.sitePerMinute', 1, 100_000],
       ['ai.budget.userDailyTokens', 0, 10_000_000_000],
       ['ai.maxToolCallsPerTurn', 1, 100],
-      ['ai.conversationRetentionDays', 1, 3650],
       ['ai.attachments.maxBytes', 1, 33_554_432],
       ['ai.attachments.maxPerMessage', 1, 20],
     ];
@@ -130,7 +129,6 @@ const NEW_AI_SETTINGS: Record<string, string | number | boolean | string[]> = {
   'aiInsights.siteIncidentThreshold': 2,
   'aiInsights.maxPerSitePerDay': 10_000,
   'aiInsights.primaryLanguage': 'zh-TW',
-  'aiInsights.retentionDays': 3650,
   'aiInsights.expireAfterDays': 365,
   'aiWorkers.networkSummary.enabled': true,
   'aiWorkers.stuckSessions.enabled': true,
@@ -205,7 +203,6 @@ void describe('AI operations, insight, worker, MCP and budget settings', () => {
       ['aiInsights.cooldownMinutes', 1, 10_080],
       ['aiInsights.siteIncidentThreshold', 2, 1000],
       ['aiInsights.maxPerSitePerDay', 1, 10_000],
-      ['aiInsights.retentionDays', 1, 3650],
       ['aiInsights.expireAfterDays', 1, 365],
       ['aiWorkers.stuckSessions.idleMinutes', 15, 1440],
       ['aiWorkers.stuckSessions.offlineEndAfterHours', 1, 720],
