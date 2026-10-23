@@ -33,6 +33,20 @@ const ACKNOWLEDGEMENTS: Acknowledgement[] = [
       'Public ALB: ports 443 and 80 (redirect only) accept any IPv4 source. WAF filters requests when enabled.',
   },
   {
+    path: /\/OcppTlsNlbSg\/Resource$/,
+    ids: () => ['AwsSolutions-EC23'],
+    reason:
+      'Security profile 3 stations connect from any address to the OCPP TLS port (EXC-006). The OCPP server requires the client certificate and rate limits per IP.',
+    when: (c) => c.ocppTls.enabled,
+  },
+  {
+    path: /\/OcppTlsNlb\/Resource$/,
+    ids: () => ['AwsSolutions-ELB2'],
+    reason:
+      'The OCPP TLS NLB has a TCP passthrough listener only. NLB access logs cover TLS listeners only, so they would stay empty. The OCPP server logs every accepted and refused connection.',
+    when: (c) => c.ocppTls.enabled,
+  },
+  {
     path: /\/Vpc\/NatSecurityGroup\/Resource$/,
     ids: () => ['AwsSolutions-EC23'],
     reason:
