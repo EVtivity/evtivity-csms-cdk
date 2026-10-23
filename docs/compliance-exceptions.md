@@ -103,7 +103,7 @@ Each exception lists the control, the affected resources and environments, why t
 
 **Controls:** EC2.18 (security groups allow unrestricted inbound traffic only on authorized ports) and EC2.19 (unrestricted access to high-risk ports).
 
-**Affected resources:** the NLB security group, only when `ocppTls.enabled` is true (off by default in every environment).
+**Affected resources:** the NLB security group, only when `ocppTls.enabled` is true. Off by default. `config/dev.yaml` turns it on so dev tests every station entry point. qa and prod leave it off.
 
 **Why it is not met:** charging stations using security profile 3 connect from arbitrary public addresses on port 8443. EC2.18 authorizes only 80 and 443 unless the account-level control parameters list more ports.
 
@@ -119,7 +119,7 @@ Each exception lists the control, the affected resources and environments, why t
 
 **Control:** ELB.1 (Application Load Balancer should redirect all HTTP requests to HTTPS).
 
-**Affected resources:** the ALB HTTP listener, only when `alb.ocppPlainWs` is true (off by default in every environment).
+**Affected resources:** the ALB HTTP listener, only when `alb.ocppPlainWs` is true. Off by default. `config/dev.yaml` turns it on so dev tests every station entry point. qa and prod leave it off.
 
 **Why it is not met:** OCPP security profiles 0 and 1 use `ws://`. Some deployed charging stations support nothing else. The option adds one host-header rule on port 80 that forwards the OCPP hostname to the OCPP service. Every other request still redirects.
 

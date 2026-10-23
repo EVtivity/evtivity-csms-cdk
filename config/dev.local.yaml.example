@@ -16,10 +16,11 @@ initialAdmin:
 #   api:
 #     imageTag: 0.1.20-rc.1
 
-# SP3 mutual TLS for OCPP. The secret holds JSON keys cert, key, ca.
+# dev.yaml turns on every station entry point: ws:// (alb.ocppPlainWs) and
+# SP3 mutual TLS (ocppTls, secret evtivity/dev/ocpp-tls with JSON keys cert,
+# key, ca). Without that secret, turn SP3 off here:
 # ocppTls:
-#   enabled: true
-#   secretName: evtivity/dev/ocpp-tls
+#   enabled: false
 
 # Production sizing and topology for a load test (docs/deployment.md#sizing-preset-sizing-prod).
 # sizing: prod

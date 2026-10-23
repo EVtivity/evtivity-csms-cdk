@@ -496,7 +496,18 @@ void describe('config validation', () => {
   });
 
   void it('rejects OCPP TLS without its secret', () => {
-    assert.throws(loadWith('ocppTls:\n  enabled: true\n'), /secretName/);
+    assert.throws(loadWith('ocppTls:\n  enabled: true\n  secretName: ""\n'), /secretName/);
+    const noTls = { ...BASE };
+    delete noTls['ocppTls'];
+    assert.throws(loadWith('ocppTls:\n  enabled: true\n', noTls), /secretName/);
+  });
+
+  void it('dev turns on every OCPP station entry point', () => {
+    const c = loadWith('')() as Config;
+    assert.equal(c.alb.ocppPlainWs, true, 'security profiles 0 and 1 on ws://');
+    assert.equal(c.services.ocpp.enabled, true, 'security profile 2 on wss:// through the ALB');
+    assert.equal(c.ocppTls.enabled, true, 'security profile 3 on the NLB');
+    assert.equal(c.ocppTls.secretName, 'evtivity/dev/ocpp-tls');
   });
 
   void it('bounds OCPP connection authentications within the database pool', () => {

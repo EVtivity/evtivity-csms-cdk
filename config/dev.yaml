@@ -66,9 +66,18 @@ storage:
 alb:
   idleTimeoutSeconds: 120
   deletionProtection: false
-  ocppPlainWs: false
+  # dev tests all three station entry points: ws:// for security profiles 0
+  # and 1 on port 80 (EXC-007), wss:// through the ALB for profile 2, and
+  # mutual TLS on the NLB for profile 3 (ocppTls below, EXC-006).
+  ocppPlainWs: true
 waf:
   enabled: false
+# Security profile 3 on wss://ocpp-tls.<zone>:8443. Create the secret before
+# the first deploy (docs/deployment.md, "OCPP TLS"). Its certificate names
+# ocpp-tls.<zone> exactly, with no wildcard.
+ocppTls:
+  enabled: true
+  secretName: evtivity/dev/ocpp-tls
 ocpi:
   countryCode: US
   partyId: EVT

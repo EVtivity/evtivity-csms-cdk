@@ -14,7 +14,7 @@ Totals include observability (Prometheus and Grafana), which every environment e
 
 Optional add-ons:
 
-- OCPP TLS NLB (`ocppTls.enabled`): about $28 per month (NLB hours, one NLCU, two public IPv4 addresses).
+- OCPP TLS NLB (`ocppTls.enabled`): about $28 per month (NLB hours, one NLCU, two public IPv4 addresses). `config/dev.yaml` turns it on to test security profile 3, so add it to the dev estimate above.
 - Dev scaled to zero (every `desiredCount: 0`, Aurora paused): about $45 per month (ALB, NAT instance, Valkey, secrets).
 
 ## Unit prices (us-east-1)
