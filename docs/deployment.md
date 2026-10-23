@@ -238,6 +238,8 @@ Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which all
 
 `SIM_PROVIDER_TEST_BASE_URL` points the SIM provider adapters at a local mock server, which would receive the SIM provider credentials. It is for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets it, in every environment. The API also refuses it under `NODE_ENV=production`, which the stack sets.
 
+The stack sets `NODE_ENV`, `PAYMENTS_ALLOW_SIMULATED`, `SEED_DEMO`, `TRUST_PROXY`, `OCPP_TRUSTED_PROXY_CIDRS`, `CORS_ORIGIN`, `COOKIE_DOMAIN`, `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY` itself. The synth fails when a service's `env` or `secrets` sets one of them, in every environment: a service value would replace the derived one and could turn on the simulated provider or a test mode in prod. Use the config fields instead (`payments.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+
 ### Conformance OCSP responder: `octt.ocspResponder`
 
 Conformance (OCTT) runs started from the dashboard run in the worker. With this on, the worker starts the Test System OCSP responder on port 7110 during a run, `OCTT_OCSP_RESPONDER_URL` points the test certificates at `http://worker.<env>.evtivity.internal:7110/ocsp`, and the ocpp service may reach that port. The run adds the worker host to `pnc.ocsp.allowedPrivateHosts` while it runs. Off by default (TC_C_50, TC_C_51, TC_C_52, and TC_M_24 are then skipped). It needs exactly one worker task, so the synth fails with `services.worker.desiredCount` above 1 or autoscaling. dev turns it on.

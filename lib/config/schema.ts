@@ -264,6 +264,26 @@ const NOTIFICATION_TEST_SINK_VARS = [
 /** Env var that points the CSMS SIM provider adapters at a local mock, refused in every environment. */
 const SIM_PROVIDER_TEST_BASE_URL = 'SIM_PROVIDER_TEST_BASE_URL';
 
+/**
+ * Env vars the stack derives itself (app-stack.ts), refused in every service
+ * `env` and `secrets` in every environment: the service env is applied after
+ * the derived values, so `PAYMENTS_ALLOW_SIMULATED: 'true'` or
+ * `NODE_ENV: test` there undid the prod refusal of the simulated provider and
+ * the weak secret checks (security review R2-L1). Set them through their
+ * config fields (`payments.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+ */
+export const DERIVED_SERVICE_ENV_VARS = [
+  'NODE_ENV',
+  'PAYMENTS_ALLOW_SIMULATED',
+  'SEED_DEMO',
+  'TRUST_PROXY',
+  'OCPP_TRUSTED_PROXY_CIDRS',
+  'CORS_ORIGIN',
+  'COOKIE_DOMAIN',
+  'JWT_SECRET',
+  'SETTINGS_ENCRYPTION_KEY',
+] as const;
+
 const autoscaling = z
   .strictObject({
     min: z.number().int().min(0),
@@ -728,6 +748,15 @@ export const configSchema = z
               code: 'custom',
               path: ['services', name, block, key],
               message: `${key} is not allowed: the notification test sink is for the local development stack only`,
+            });
+          }
+        }
+        for (const key of DERIVED_SERVICE_ENV_VARS) {
+          if (key in c.services[name][block]) {
+            ctx.addIssue({
+              code: 'custom',
+              path: ['services', name, block, key],
+              message: `${key} is set by the stack and cannot be overridden in services.${name}.${block}`,
             });
           }
         }

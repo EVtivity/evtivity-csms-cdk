@@ -10,7 +10,11 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { load } from 'js-yaml';
 import { loadConfig } from '../lib/config/load.js';
-import { webauthnPortalRpNote, type Config } from '../lib/config/schema.js';
+import {
+  DERIVED_SERVICE_ENV_VARS,
+  webauthnPortalRpNote,
+  type Config,
+} from '../lib/config/schema.js';
 
 const BASE = load(readFileSync('config/dev.yaml', 'utf-8')) as Record<string, unknown>;
 
@@ -588,6 +592,33 @@ void describe('config validation', () => {
         "services:\n  ocpiSim:\n    enabled: false\n    env:\n      NOTIFICATIONS_ALLOW_TEST_SINK: 'false'\n",
       ),
       /NOTIFICATIONS_ALLOW_TEST_SINK is not allowed/,
+    );
+  });
+
+  void it('refuses service env overrides of derived security values in every environment (R2-L1)', () => {
+    for (const env of ['dev', 'qa', 'prod'] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'evt-config-'));
+      writeFileSync(join(dir, `${env}.yaml`), readFileSync(`config/${env}.yaml`, 'utf-8'));
+      const loadEnv = (local: string) => () => {
+        writeFileSync(join(dir, `${env}.local.yaml`), local);
+        return loadConfig(env, dir);
+      };
+      for (const key of DERIVED_SERVICE_ENV_VARS) {
+        for (const service of ['api', 'ocpp', 'worker', 'ocpi']) {
+          for (const block of ['env', 'secrets']) {
+            assert.throws(
+              loadEnv(`services:\n  ${service}:\n    ${block}:\n      ${key}: 'true'\n`),
+              new RegExp(`${key} is set by the stack`),
+              `${env} ${service} ${block} ${key}`,
+            );
+          }
+        }
+      }
+    }
+    // The example from the review: prod with the simulated provider through the env.
+    assert.throws(
+      loadWith("services:\n  api:\n    env:\n      PAYMENTS_ALLOW_SIMULATED: 'true'\n"),
+      /PAYMENTS_ALLOW_SIMULATED is set by the stack/,
     );
   });
 
