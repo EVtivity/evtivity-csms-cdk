@@ -164,6 +164,16 @@ aws secretsmanager rotate-secret --secret-id evtivity/dev/cache-api
 aws ecs update-service --cluster evtivity-dev --service evtivity-dev-api --force-new-deployment
 ```
 
+## Charging station connections
+
+| Security profile | Station URL                              | Setting                                          | Default       | Load balancer                            |
+| ---------------- | ---------------------------------------- | ------------------------------------------------ | ------------- | ---------------------------------------- |
+| 0 and 1          | `ws://ocpp.<zone>/<stationId>`           | `alb.ocppPlainWs: true`                          | Off (dev: on) | ALB port 80, one host rule (EXC-007)     |
+| 2                | `wss://ocpp.<zone>/<stationId>`          | None, on with the `ocpp` service                 | On            | ALB port 443, ACM certificate            |
+| 3 (mutual TLS)   | `wss://ocpp-tls.<zone>:8443/<stationId>` | `ocppTls.enabled: true` and `ocppTls.secretName` | Off (dev: on) | NLB port 8443, TCP passthrough (EXC-006) |
+
+`config/dev.yaml` turns on all three so dev tests every entry point. qa and prod turn on only profile 2. [OCPP TLS](#ocpp-tls-security-profile-3-ocpptlsenabled) and [Plain `ws://` for OCPP](#plain-ws-for-ocpp-albocppplainws) below say how to turn on the other two. A station on profile 1 or 2 sends its station id and password with HTTP Basic Auth. A station on profile 3 presents a client certificate signed by the secret's `ca`.
+
 ## Optional features
 
 ### OCPP TLS (security profile 3): `ocppTls.enabled`
@@ -190,7 +200,12 @@ Default 120 seconds. The synth refuses a value under 60: the AI assistant stream
 
 ### Plain `ws://` for OCPP: `alb.ocppPlainWs`
 
-Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 0 and 1. See EXC-007 before enabling.
+Forwards `http://ocpp.<zone>` to OCPP for stations limited to security profiles 0 and 1. They connect to `ws://ocpp.<zone>/<stationId>`. The rule matches only the OCPP hostname, and every other request on port 80 still redirects to HTTPS. See EXC-007 before enabling.
+
+```yaml
+alb:
+  ocppPlainWs: true
+```
 
 ### Demo data: `seedDemo.enabled`
 

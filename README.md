@@ -148,6 +148,36 @@ Grafana answers only to allowlisted addresses. Change the list at any time witho
 AWS_PROFILE=<name> ./scripts/grafana-access.sh dev add me     # also: list, remove <cidr>
 ```
 
+## Charging station connections
+
+Stations reach the OCPP server through up to three entry points, one per OCPP security profile group. `<zone>` is `<subdomain>.<apex>`, for example `dev.example.com`.
+
+| Security profile | Station URL                              | Setting                                          | Default       | The station needs                                                                            |
+| ---------------- | ---------------------------------------- | ------------------------------------------------ | ------------- | -------------------------------------------------------------------------------------------- |
+| 0 and 1          | `ws://ocpp.<zone>/<stationId>`           | `alb.ocppPlainWs: true`                          | Off (dev: on) | Profile 1: its Basic Auth password. No TLS.                                                  |
+| 2                | `wss://ocpp.<zone>/<stationId>`          | None, on with the `ocpp` service                 | On            | Its Basic Auth password and the Amazon root CAs (the ALB certificate comes from ACM)         |
+| 3 (mutual TLS)   | `wss://ocpp-tls.<zone>:8443/<stationId>` | `ocppTls.enabled: true` and `ocppTls.secretName` | Off (dev: on) | A client certificate signed by the secret's `ca`, and the CA that signed the secret's `cert` |
+
+`config/dev.yaml` turns on all three so dev tests every entry point. qa and prod turn on only profile 2 until you set the options in `config/<env>.local.yaml` or `config/<env>.yaml`.
+
+Profiles 0 and 1 (`alb.ocppPlainWs: true`) add one rule on the ALB port 80 listener that forwards the OCPP hostname to the OCPP service. Every other host still redirects to HTTPS. Station passwords then cross the internet unencrypted. Read [EXC-007](docs/compliance-exceptions.md#exc-007-plain-websocket-listener-for-ocpp) first.
+
+Profile 3 (`ocppTls.enabled: true`) adds a network load balancer on port 8443 with TCP passthrough, so the OCPP server terminates TLS and checks the client certificate. Create the secret before the deploy. It holds three PEM strings: `cert` (the server certificate, which names `ocpp-tls.<zone>` exactly, with no wildcard), `key` (its private key) and `ca` (the CA that signs station client certificates):
+
+```bash
+aws secretsmanager create-secret --name evtivity/dev/ocpp-tls --profile <name> --secret-string "$(jq -n \
+  --arg cert "$(cat tls.crt)" --arg key "$(cat tls.key)" --arg ca "$(cat ca.crt)" \
+  '{cert:$cert, key:$key, ca:$ca}')"
+```
+
+```yaml
+ocppTls:
+  enabled: true
+  secretName: evtivity/dev/ocpp-tls
+```
+
+Stations reject a wildcard certificate unless `AllowCSMSTLSWildcards` (2.1) or `AllowCentralSystemTLSWildcards` (1.6) is true, and both default to false. The port is open to the internet: read [EXC-006](docs/compliance-exceptions.md#exc-006-ocpp-tls-port-open-to-the-internet). The [deployment guide](docs/deployment.md#charging-station-connections) has the details.
+
 ## Operating
 
 ### Upgrade to a new CSMS release
