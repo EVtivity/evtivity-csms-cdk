@@ -203,6 +203,12 @@ Shell sessions keep the read-only filesystem, so only `/tmp` is writable, and ev
 
 Grafana's EVtivity folder has dashboards for system metrics, business metrics, logs, and alerts.
 
+### Database storage
+
+Aurora storage grows with the data and is billed by the amount stored. Every OCPP message is a row in `ocpp_message_logs`, heartbeats included, and every meter reading is a row in `meter_values`. On a test network of about 2,000 simulated stations that stayed connected, the database reached 90 GB: 57 GB in `ocpp_message_logs` and 32 GB in `meter_values`. The simulator in chaos mode and the demo data (`seedDemo`, 2,000 stations) produce this kind of volume.
+
+Set shorter retention in `appSettings`, for example `logs.ocppMessage.retentionDays: 14` and `logs.meterValues.retentionDays: 30` (defaults 30 and 90). Each deploy writes them. See [Data Retention](https://evtivity.com/docs/configuration/data-retention) for every retention setting.
+
 ### WAF
 
 qa and prod run the web application firewall. [docs/security.md](docs/security.md#waf-rules) lists every rule and why it exists. Stripe webhooks (`/v1/webhooks/payments/stripe`) pass through an IP set that must follow Stripe's published addresses. The Adyen webhook (`/v1/webhooks/payments/adyen`) skips the country rule and has its own rate limit:
