@@ -103,6 +103,22 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Simulator: the api writes the same TLS address the simulator uses', () => {
+      const containers = ofType(resources, 'AWS::ECS::TaskDefinition').flatMap(
+        (td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [],
+      );
+      const envOf = (c: Container): { Name: string; Value?: unknown }[] => c.Environment ?? [];
+      const api = containers.find((c) => envOf(c).some((e) => e.Name === 'API_HOST'));
+      const css = containers.find((c) => envOf(c).some((e) => e.Name === 'CSS_MODE'));
+      if (!config.services.api.enabled) return;
+      assert.ok(api != null, 'the api container exists');
+      const apiUrl = envOf(api).find((e) => e.Name === 'OCPP_TLS_SERVER_URL')?.Value;
+      assert.equal(typeof apiUrl, 'string', 'api OCPP_TLS_SERVER_URL is set');
+      if (css != null) {
+        assert.equal(apiUrl, envOf(css).find((e) => e.Name === 'OCPP_TLS_SERVER_URL')?.Value);
+      }
+    });
+
     void it('Payments: api, ocpp and worker get the simulated provider gate, off by default', () => {
       const containers = ofType(resources, 'AWS::ECS::TaskDefinition')
         .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])

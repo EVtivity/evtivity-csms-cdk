@@ -177,6 +177,11 @@ export class AppStack extends Stack {
       ocpi: serviceUrl(config, 'ocpi'),
     };
     const ocppTlsPort = config.ocppTls.enabled ? config.ocppTls.port : undefined;
+    // The TLS address simulated stations connect to for security profile 2 or
+    // 3. Without the OCPP TLS listener, TLS runs through the load balancer.
+    // The simulator reads it, and the API writes it into a simulated station's
+    // target when it pairs the station or changes its profile while offline.
+    const simulatorTlsUrl = config.ocppTls.enabled || urls.ocpp === '' ? ocppTlsUrl : urls.ocpp;
 
     for (const name of SERVICE_NAMES) {
       const sc = config.services[name];
@@ -237,6 +242,7 @@ export class AppStack extends Stack {
             TRUST_PROXY: vpc.vpcCidrBlock,
             OCPP_PORT: '8080',
             OCPP_SERVER_URL: ocppUrl,
+            OCPP_TLS_SERVER_URL: simulatorTlsUrl,
             // Public wss:// address a station gets when moved to security profile 2.
             ...(urls.ocpp !== '' && { OCPP_STATION_TLS_URL: urls.ocpp }),
             SEED_DEMO: 'false',
@@ -316,10 +322,7 @@ export class AppStack extends Stack {
         case 'css':
           Object.assign(environment, {
             OCPP_SERVER_URL: ocppUrl,
-            // Without the OCPP TLS listener, security profile 2 runs through the
-            // load balancer, so simulated 1.6 stations move to its wss address.
-            OCPP_TLS_SERVER_URL:
-              config.ocppTls.enabled || urls.ocpp === '' ? ocppTlsUrl : urls.ocpp,
+            OCPP_TLS_SERVER_URL: simulatorTlsUrl,
             // The TLS address the API gives stations moved to security profile
             // 2: a simulated station follows only addresses it knows.
             ...(urls.ocpp !== '' && { OCPP_STATION_TLS_URL: urls.ocpp }),
