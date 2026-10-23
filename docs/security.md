@@ -67,6 +67,8 @@ How rotated credentials reach running tasks:
 
 ## Load balancing and WAF
 
+In prod the config refuses a disabled WAF, load balancer or database deletion protection turned off, and ECS Exec turned on, unless `overrides.<name>.reason` records why ([deployment.md](deployment.md#prod-protections-overrides)).
+
 - ALB drops invalid header fields, uses defensive desync mitigation, and writes access logs to the logs bucket.
 - Deletion protection is on in prod.
 - Every environment with observability gets a web ACL that limits Grafana to its allowlist. In qa and prod (`waf.enabled`) the same web ACL runs the rules in [WAF rules](#waf-rules).

@@ -246,6 +246,22 @@ Conformance (OCTT) runs started from the dashboard run in the worker. With this 
 
 After an OCPP restart every station reconnects at once. The ocpp service authenticates at most `maxConcurrent` of them at a time (default half of `aurora.poolMax`), queues up to `maxQueued` (default 1000) for at most `maxWaitMs` (default 10000), and answers the rest with 503 and `Retry-After`, so stations retry later. Sets `OCPP_AUTH_MAX_CONCURRENT`, `OCPP_AUTH_MAX_QUEUED` and `OCPP_AUTH_MAX_WAIT_MS` only when set. `maxConcurrent` may not exceed `aurora.poolMax`: raise the pool instead.
 
+`maxPendingPerIp` caps the upgrade requests from one station address (an IPv6 /64) whose authentication is still running (`OCPP_MAX_PENDING_AUTH_PER_IP`, server default 50). Stations whose password succeeded within 24 hours are not counted. The ALB is a trusted proxy (`OCPP_TRUSTED_PROXY_CIDRS` is the VPC CIDR), so the address comes from its `X-Forwarded-For`.
+
+### Prod protections: `overrides`
+
+A prod config refuses `waf.enabled: false`, `aurora.deletionProtection: false`, `alb.deletionProtection: false` and `ecs.executeCommand: true` unless `overrides.<name>.reason` names why, in at least 10 characters. The names are `waf`, `auroraDeletionProtection`, `albDeletionProtection` and `ecsExecuteCommand`:
+
+```yaml
+ecs:
+  executeCommand: true
+overrides:
+  ecsExecuteCommand:
+    reason: incident 2026-10-23, remove after the fix ships
+```
+
+dev and qa need no reason.
+
 ### Payment settings in `appSettings`
 
 These keys are optional. Leave one out to keep the value set in Settings > Payment.

@@ -304,6 +304,11 @@ const servicesSchema = z
   )
   .strict();
 
+/** A prod protection turned off on purpose, with the reason (SH-L44). */
+const prodOverride = z.strictObject({
+  reason: z.string().trim().min(10, 'name the reason in at least 10 characters'),
+});
+
 export const configSchema = z
   .strictObject({
     env: envName,
@@ -625,7 +630,24 @@ export const configSchema = z
         maxConcurrent: z.number().int().min(1).optional(),
         maxQueued: z.number().int().min(0).optional(),
         maxWaitMs: z.number().int().min(1).optional(),
+        // Upgrade requests from one station IP (an IPv6 /64) whose
+        // authentication is still running (OCPP_MAX_PENDING_AUTH_PER_IP).
+        // Unset: the server default, 50. The ALB is a trusted proxy, so the
+        // station address comes from its X-Forwarded-For.
+        maxPendingPerIp: z.number().int().min(1).optional(),
       })
+      .prefault({}),
+
+    // A prod config may turn off a protection only with a reason on record:
+    // overrides.<name>.reason, at least 10 characters (SH-L44).
+    overrides: z
+      .strictObject({
+        waf: prodOverride,
+        auroraDeletionProtection: prodOverride,
+        albDeletionProtection: prodOverride,
+        ecsExecuteCommand: prodOverride,
+      })
+      .partial()
       .prefault({}),
 
     monitoring: z
@@ -644,7 +666,7 @@ export const configSchema = z
         enabled: z.boolean().default(false),
         grafana: z
           .strictObject({
-            version: z.string().default('11.5.2'),
+            version: z.string().default('11.5.10'),
             hostname: z
               .string()
               .regex(/^[a-z0-9-]+$/)
@@ -661,7 +683,7 @@ export const configSchema = z
           .prefault({}),
         prometheus: z
           .strictObject({
-            version: z.string().default('v3.2.1'),
+            version: z.string().default('v3.15.1'),
             scrapeIntervalSeconds: z.number().int().min(10).default(60),
             cpu: fargateCpu.default(256),
             memoryMiB: z.number().int().min(512).default(512),
@@ -860,6 +882,43 @@ export const configSchema = z
           path: ['vpc', 'availabilityZones'],
           message: `${az} is not in region ${c.region}`,
         });
+      }
+    }
+    if (c.env === 'prod') {
+      // The protections prod relies on. Each can be turned off only with a
+      // reason in overrides (SH-L44): WAF is the only cross-task rate limit
+      // in front of the ALB, deletion protection keeps a stack deletion from
+      // dropping the database or the load balancer, and ECS Exec opens a
+      // shell into running tasks.
+      const weakened: Array<[boolean, keyof typeof c.overrides, string[], string]> = [
+        [!c.waf.enabled, 'waf', ['waf', 'enabled'], 'must be true in prod'],
+        [
+          !c.aurora.deletionProtection,
+          'auroraDeletionProtection',
+          ['aurora', 'deletionProtection'],
+          'must be true in prod',
+        ],
+        [
+          !c.alb.deletionProtection,
+          'albDeletionProtection',
+          ['alb', 'deletionProtection'],
+          'must be true in prod',
+        ],
+        [
+          c.ecs.executeCommand,
+          'ecsExecuteCommand',
+          ['ecs', 'executeCommand'],
+          'must be false in prod',
+        ],
+      ];
+      for (const [weak, name, path, message] of weakened) {
+        if (weak && c.overrides[name] == null) {
+          ctx.addIssue({
+            code: 'custom',
+            path,
+            message: `${message} (or set overrides.${name}.reason)`,
+          });
+        }
       }
     }
     if (c.seedDemo.enabled && c.env === 'prod') {

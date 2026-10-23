@@ -262,6 +262,9 @@ export class AppStack extends Stack {
             ...(config.ocppConnectionAuth.maxWaitMs != null && {
               OCPP_AUTH_MAX_WAIT_MS: String(config.ocppConnectionAuth.maxWaitMs),
             }),
+            ...(config.ocppConnectionAuth.maxPendingPerIp != null && {
+              OCPP_MAX_PENDING_AUTH_PER_IP: String(config.ocppConnectionAuth.maxPendingPerIp),
+            }),
           });
           if (ocppTlsPort != null && config.ocppTls.secretName != null) {
             const tls = secretsmanager.Secret.fromSecretNameV2(
@@ -317,6 +320,9 @@ export class AppStack extends Stack {
             // load balancer, so simulated 1.6 stations move to its wss address.
             OCPP_TLS_SERVER_URL:
               config.ocppTls.enabled || urls.ocpp === '' ? ocppTlsUrl : urls.ocpp,
+            // The TLS address the API gives stations moved to security profile
+            // 2: a simulated station follows only addresses it knows.
+            ...(urls.ocpp !== '' && { OCPP_STATION_TLS_URL: urls.ocpp }),
             CSS_MODE: 'standby',
             CSS_HEALTH_PORT: '8082',
           });

@@ -411,6 +411,44 @@ void describe('config validation', () => {
     );
   });
 
+  void it('refuses a weakened prod config unless an override names the reason', () => {
+    const prod = load(readFileSync('config/prod.yaml', 'utf-8')) as Record<string, unknown>;
+    assert.doesNotThrow(loadWith('', prod));
+    const cases: Array<[string, string, RegExp]> = [
+      ['waf:\n  enabled: false\n', 'waf', /waf\.enabled: must be true in prod/],
+      [
+        'aurora:\n  deletionProtection: false\n',
+        'auroraDeletionProtection',
+        /aurora\.deletionProtection: must be true in prod/,
+      ],
+      [
+        'alb:\n  deletionProtection: false\n',
+        'albDeletionProtection',
+        /alb\.deletionProtection: must be true in prod/,
+      ],
+      [
+        'ecs:\n  executeCommand: true\n',
+        'ecsExecuteCommand',
+        /ecs\.executeCommand: must be false in prod/,
+      ],
+    ];
+    for (const [weak, name, refusal] of cases) {
+      assert.throws(loadWith(weak, prod), refusal);
+      assert.doesNotThrow(
+        loadWith(
+          `${weak}overrides:\n  ${name}:\n    reason: incident 42, until the fix ships\n`,
+          prod,
+        ),
+      );
+      assert.throws(
+        loadWith(`${weak}overrides:\n  ${name}:\n    reason: x\n`, prod),
+        /at least 10 characters/,
+      );
+    }
+    // dev and qa keep their choice without a reason.
+    assert.doesNotThrow(loadWith('waf:\n  enabled: false\necs:\n  executeCommand: true\n'));
+  });
+
   void it('gates the simulated payment provider', () => {
     const payments = (local: string, base = BASE): { allowSimulatedProvider: boolean } =>
       (loadWith(local, base)() as { payments: { allowSimulatedProvider: boolean } }).payments;
