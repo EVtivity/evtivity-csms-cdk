@@ -196,7 +196,7 @@ Same secret shape, for the charging station simulator to test security profile 3
 
 ### ALB idle timeout: `alb.idleTimeoutSeconds`
 
-Default 120 seconds. The synth refuses a value under 60: the AI assistant streams its answers over server-sent events with a heartbeat every 15 seconds, and a shorter timeout would cut a stream while the model works.
+Default 600 seconds, above the largest CSMS or station ping interval plus 30 seconds (the station data plans ping after 120 or 240 seconds without a frame, stations every 300 or 240 seconds with the plan templates). The synth refuses a value under 60: the AI assistant streams its answers over server-sent events with a heartbeat every 15 seconds, and a shorter timeout would cut a stream while the model works.
 
 ### Plain `ws://` for OCPP: `alb.ocppPlainWs`
 

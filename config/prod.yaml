@@ -62,7 +62,7 @@ storage:
   logsExpirationDays: 365
   removal: retain
 alb:
-  idleTimeoutSeconds: 120
+  idleTimeoutSeconds: 600
   deletionProtection: true
   ocppPlainWs: false
 waf:

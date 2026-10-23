@@ -64,7 +64,7 @@ storage:
   logsExpirationDays: 14
   removal: destroy
 alb:
-  idleTimeoutSeconds: 120
+  idleTimeoutSeconds: 600
   deletionProtection: false
   # dev tests all three station entry points: ws:// for security profiles 0
   # and 1 on port 80 (EXC-007), wss:// through the ALB for profile 2, and

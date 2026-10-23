@@ -369,6 +369,28 @@ void describe('ALB idle timeout', () => {
     }
   });
 
+  void it('defaults to 600 seconds, above the largest ping interval plus 30 seconds', () => {
+    for (const env of ['dev', 'qa', 'prod'] as const) {
+      const alb = Template.fromStack(build(env).alb).findResources(
+        'AWS::ElasticLoadBalancingV2::LoadBalancer',
+      );
+      for (const r of Object.values(alb)) {
+        const attrs = (
+          r as { Properties: { LoadBalancerAttributes: { Key: string; Value: string }[] } }
+        ).Properties.LoadBalancerAttributes;
+        const v = attrs.find((a) => a.Key === 'idle_timeout.timeout_seconds')?.Value;
+        assert.equal(v, '600', `${env}: idle timeout ${String(v)}`);
+      }
+    }
+  });
+
+  void it('defaults the schema to 600 seconds when the config sets none', () => {
+    const alb = { ...(BASE['alb'] as Record<string, unknown>) };
+    delete alb['idleTimeoutSeconds'];
+    const parsed = configSchema.parse({ ...BASE, alb });
+    assert.equal(parsed.alb.idleTimeoutSeconds, 600);
+  });
+
   void it('rejects a configured idle timeout under 60 seconds', () => {
     assert.throws(loadWith('alb:\n  idleTimeoutSeconds: 59\n'), /at least 60/);
     assert.doesNotThrow(loadWith('alb:\n  idleTimeoutSeconds: 60\n'));

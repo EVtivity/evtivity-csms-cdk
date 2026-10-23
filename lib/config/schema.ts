@@ -524,7 +524,11 @@ export const configSchema = z
     alb: z
       .strictObject({
         // WebSockets stay open past this only while frames flow. OCPP
-        // heartbeats and pings keep station connections alive.
+        // heartbeats and pings keep station connections alive. The default
+        // is above the largest CSMS or station ping interval plus 30 seconds:
+        // the station data plans ping after 120 s (Wi-Fi or wired) or 240 s
+        // (Cellular) without a frame, and stations ping every 300 s or 240 s
+        // with the plan templates.
         // The AI assistant streams over SSE with a 15-second heartbeat, so the
         // timeout must stay at 60 seconds or more.
         idleTimeoutSeconds: z
@@ -532,7 +536,7 @@ export const configSchema = z
           .int()
           .min(60, 'must be at least 60: AI assistant streams send a heartbeat every 15 seconds')
           .max(4000)
-          .default(120),
+          .default(600),
         deletionProtection: z.boolean().default(false),
         // Plain ws:// for OCPP security profiles 0 and 1 on port 80. Station
         // passwords then cross the internet unencrypted. See EXC-007.
