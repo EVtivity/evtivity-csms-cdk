@@ -65,6 +65,7 @@ export function sizingOf(c: Config): Record<string, unknown> {
       authRateLimitPer5Min: c.waf.authRateLimitPer5Min,
       guestRateLimitPer5Min: c.waf.guestRateLimitPer5Min,
       adyenWebhookRateLimitPer5Min: c.waf.adyenWebhookRateLimitPer5Min,
+      paymentTerminalWebhookRateLimitPer5Min: c.waf.paymentTerminalWebhookRateLimitPer5Min,
     },
     ocppConnectionAuth: { ...c.ocppConnectionAuth },
     // The OCSP responder needs a single worker task, so it follows the

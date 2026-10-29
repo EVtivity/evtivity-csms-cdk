@@ -70,24 +70,24 @@ Validation is strict. A misspelled key (for example `waf.enable`) fails the synt
 
 Common changes:
 
-| Change                                              | Config                                                                                                      |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Release a new version                               | `image.tag` (the CSMS release workflow updates it)                                                          |
-| Pin one service to another image                    | `services.<name>.imageTag`                                                                                  |
-| Turn a service off                                  | `services.<name>.enabled: false` (dependencies are validated)                                               |
-| Size a service                                      | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling`                                           |
-| Cheaper, interruptible compute                      | `services.<name>.capacity: FARGATE_SPOT`                                                                    |
-| Aurora capacity                                     | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`                                                      |
-| Production sizing in a lower environment            | `sizing: prod` (see [Sizing preset](#sizing-preset-sizing-prod))                                            |
-| Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`, `valkey.multiAz` (see [Valkey replicas](#valkey-replicas))            |
-| NAT                                                 | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count` (see [Changing NAT](#changing-nat))                |
-| VPC interface endpoints                             | `vpc.interfaceEndpoints` (HTTPS from the VPC CIDR only)                                                     |
-| WAF (rules in [security.md](security.md#waf-rules)) | `waf.enabled`, `waf.rateLimitPer5Min`, `waf.countRules`                                                     |
-| Countries allowed through WAF                       | `waf.allowCountries` (default `[US]`, `[]` turns it off)                                                    |
-| WAF rate limits (per IP, 5 min)                     | `waf.ocppRateLimitPer5Min`, `authRateLimitPer5Min`, `guestRateLimitPer5Min`, `adyenWebhookRateLimitPer5Min` |
-| Stripe webhook addresses                            | `waf.stripeWebhookIps` (seed only, see `scripts/stripe-webhook-ips.sh`)                                     |
-| Rotation                                            | `rotation.*Days`, `ecs.redeployEveryDays` (must be shorter)                                                 |
-| Settings table values                               | `appSettings` (non-secret keys only)                                                                        |
+| Change                                              | Config                                                                                                                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Release a new version                               | `image.tag` (the CSMS release workflow updates it)                                                                                                    |
+| Pin one service to another image                    | `services.<name>.imageTag`                                                                                                                            |
+| Turn a service off                                  | `services.<name>.enabled: false` (dependencies are validated)                                                                                         |
+| Size a service                                      | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling`                                                                                     |
+| Cheaper, interruptible compute                      | `services.<name>.capacity: FARGATE_SPOT`                                                                                                              |
+| Aurora capacity                                     | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`                                                                                                |
+| Production sizing in a lower environment            | `sizing: prod` (see [Sizing preset](#sizing-preset-sizing-prod))                                                                                      |
+| Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`, `valkey.multiAz` (see [Valkey replicas](#valkey-replicas))                                                      |
+| NAT                                                 | `vpc.nat.mode` (`fck-nat` or `gateway`), `vpc.nat.count` (see [Changing NAT](#changing-nat))                                                          |
+| VPC interface endpoints                             | `vpc.interfaceEndpoints` (HTTPS from the VPC CIDR only)                                                                                               |
+| WAF (rules in [security.md](security.md#waf-rules)) | `waf.enabled`, `waf.rateLimitPer5Min`, `waf.countRules`                                                                                               |
+| Countries allowed through WAF                       | `waf.allowCountries` (default `[US]`, `[]` turns it off)                                                                                              |
+| WAF rate limits (per IP, 5 min)                     | `waf.ocppRateLimitPer5Min`, `authRateLimitPer5Min`, `guestRateLimitPer5Min`, `adyenWebhookRateLimitPer5Min`, `paymentTerminalWebhookRateLimitPer5Min` |
+| Stripe webhook addresses                            | `waf.stripeWebhookIps` (seed only, see `scripts/stripe-webhook-ips.sh`)                                                                               |
+| Rotation                                            | `rotation.*Days`, `ecs.redeployEveryDays` (must be shorter)                                                                                           |
+| Settings table values                               | `appSettings` (non-secret keys only)                                                                                                                  |
 
 Aurora readers are pinned to the availability zones after the first (`vpc.availabilityZones`), so an AZ outage leaves a reader running. The writer is never pinned, because setting its AZ would replace it. Pinning a reader that already exists in another AZ replaces that reader once, with no writer failover.
 
@@ -230,6 +230,10 @@ Logs are in `/evtivity/<env>/db-job` under the `seed-demo/` stream prefix.
 
 Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which allows the simulated (test) payment provider. It moves no money. Off by default. Prod rejects it. `appSettings['payments.provider']` accepts `none` and `stripe`, plus `simulated` when this is on. Select Adyen in Settings > Payment after the upgrade.
 
+### Simulated payment terminals: `paymentTerminals.allowSimulatedProvider`
+
+Sets `PAYMENT_TERMINALS_ALLOW_SIMULATED` on the api and worker services, which allows the simulated payment terminal provider. It moves no money. Off by default. Prod rejects it. `seedDemo` does not need it: the demo seed creates no terminals.
+
 ### Notification test sink: refused
 
 `NOTIFICATIONS_ALLOW_TEST_SINK` and `NOTIFICATIONS_TEST_SINK_URL` send driver SMS and push to a local development service instead of Twilio and Expo. They are for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets either one, in every environment. The services also refuse them under `NODE_ENV=production`, which the stack sets.
@@ -238,7 +242,11 @@ Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which all
 
 `SIM_PROVIDER_TEST_BASE_URL` points the SIM provider adapters at a local mock server, which would receive the SIM provider credentials. It is for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets it, in every environment. The API also refuses it under `NODE_ENV=production`, which the stack sets.
 
-The stack sets `NODE_ENV`, `PAYMENTS_ALLOW_SIMULATED`, `SEED_DEMO`, `TRUST_PROXY`, `OCPP_TRUSTED_PROXY_CIDRS`, `CORS_ORIGIN`, `COOKIE_DOMAIN`, `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY` itself. The synth fails when a service's `env` or `secrets` sets one of them, in every environment: a service value would replace the derived one and could turn on the simulated provider or a test mode in prod. Use the config fields instead (`payments.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+### Payment terminal mock: refused
+
+`PAYMENT_TERMINAL_TEST_BASE_URL` points the ID TECH payment terminal adapter at a local mock server, which would receive the ID TECH credentials. It is for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets it, in every environment. The API and worker also refuse it under `NODE_ENV=production`, which the stack sets.
+
+The stack sets `NODE_ENV`, `PAYMENTS_ALLOW_SIMULATED`, `PAYMENT_TERMINALS_ALLOW_SIMULATED`, `SEED_DEMO`, `TRUST_PROXY`, `OCPP_TRUSTED_PROXY_CIDRS`, `CORS_ORIGIN`, `COOKIE_DOMAIN`, `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY` itself. The synth fails when a service's `env` or `secrets` sets one of them, in every environment: a service value would replace the derived one and could turn on the simulated provider or a test mode in prod. Use the config fields instead (`payments.allowSimulatedProvider`, `paymentTerminals.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
 
 ### Conformance OCSP responder: `octt.ocspResponder`
 
@@ -357,6 +365,16 @@ SIM providers and the station signal read are off on a fresh install: nothing ca
 | `sim.signal.alertBelowDbm`                 | Low signal alert threshold, whole number from -140 to -40 (off on a fresh install)            |
 | `sim.ocpp16.signalKeys`                    | List of OCPP 1.6 configuration key names, at most 20, each at most 50 characters, listed once |
 | `sim.signal.goodDbm`, `sim.signal.fairDbm` | Whole numbers from -140 to -40, good above fair (-65 and -85 on a fresh install)              |
+
+### Payment terminal settings in `appSettings`
+
+The ID TECH payment terminal provider is off on a fresh install. Leave a key out to keep the value set in Settings > Integrations > Payment Terminals. The ID TECH API key, API secret and webhook secret are entered in the dashboard: the synth fails on `paymentTerminals.idtech.apiKey`, `apiSecret`, `webhookSecret` and their `Enc` names.
+
+| Key                                   | Values                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| `paymentTerminals.idtech.enabled`     | `true` or `false`                                                            |
+| `paymentTerminals.idtech.environment` | `sandbox` or `production` (`sandbox` on a fresh install)                     |
+| `paymentTerminals.idtech.merchantId`  | ID TECH merchant id, a quoted string of 1 to 64 letters, numbers, `_` or `-` |
 
 The synth applies the same rules as the CSMS settings route and the Helm chart.
 

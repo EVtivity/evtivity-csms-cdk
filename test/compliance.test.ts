@@ -132,6 +132,26 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Payment terminals: api and worker get the simulated terminal gate, off by default', () => {
+      const containers = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .filter((c) =>
+          (c.Environment ?? []).some((e) => e.Name === 'PAYMENT_TERMINALS_ALLOW_SIMULATED'),
+        );
+      assert.ok(containers.length > 0, 'at least one service carries the gate');
+      for (const c of containers) {
+        const env = (c.Environment ?? []) as { Name: string; Value?: unknown }[];
+        const value = env.find((e) => e.Name === 'PAYMENT_TERMINALS_ALLOW_SIMULATED')?.Value;
+        assert.equal(value, String(config.paymentTerminals.allowSimulatedProvider));
+        if (config.env === 'prod') assert.equal(value, 'false');
+        // The ocpp service runs no terminal provider.
+        assert.ok(
+          !(c.Environment ?? []).some((e) => e.Name === 'OCPP_HEALTH_PORT'),
+          'ocpp gets no terminal gate',
+        );
+      }
+    });
+
     void it('OCTT: the ocpp service reaches the worker OCSP responder only when configured', () => {
       const worker = ofType(resources, 'AWS::ECS::TaskDefinition')
         .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
@@ -507,6 +527,26 @@ for (const env of ENVS) {
         }
       } else if (geo) {
         assert.ok(!text(geo).includes(adyenPath));
+      }
+
+      // Payment terminal providers publish no IP ranges either: the webhook POSTs
+      // skip the country rule and have their own rate limit.
+      const terminalPath = '"SearchString":"/v1/webhooks/payment-terminals/"';
+      const terminal = byName('PaymentTerminalWebhookRateLimit');
+      assert.equal(Boolean(terminal), api != null);
+      if (api) {
+        const limit = text(terminal);
+        assert.match(
+          limit,
+          new RegExp(`"Limit":${String(w.paymentTerminalWebhookRateLimitPer5Min)}`),
+        );
+        for (const s of ['"SearchString":"POST"', `"SearchString":"${api}"`]) {
+          assert.ok(limit.includes(s), `terminal webhook limit matches ${s}`);
+        }
+        assert.ok(limit.includes(`"PositionalConstraint":"STARTS_WITH",${terminalPath}`), 'prefix');
+        if (geo) assert.ok(text(geo).includes(terminalPath), 'GeoAllow names the terminal path');
+      } else if (geo) {
+        assert.ok(!text(geo).includes(terminalPath));
       }
 
       // Path limits count POSTs only, and never token refresh or logout.

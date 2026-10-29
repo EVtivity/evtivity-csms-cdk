@@ -90,6 +90,18 @@ const SIM_HOLOGRAM_ORG_ID_PATTERN = /^\d{1,15}$/;
 // printable ASCII characters without a space or colon (change both together).
 const SIM_ONENCE_CLIENT_ID_KEY = 'sim.1nce.clientId';
 const SIM_ONENCE_CLIENT_ID_PATTERN = /^[!-9;-~]{1,128}$/;
+// The ID TECH payment terminal settings (v0.1.49): `isIdtechEnvironment` and
+// `isIdtechMerchantId` of `@evtivity/lib/payment-terminal-settings` (change both together).
+const IDTECH_ENABLED_KEY = 'paymentTerminals.idtech.enabled';
+const IDTECH_ENVIRONMENT_KEY = 'paymentTerminals.idtech.environment';
+const IDTECH_ENVIRONMENTS = ['sandbox', 'production'];
+const IDTECH_MERCHANT_ID_KEY = 'paymentTerminals.idtech.merchantId';
+const IDTECH_MERCHANT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const IDTECH_SECRET_KEYS = [
+  'paymentTerminals.idtech.apiKey',
+  'paymentTerminals.idtech.apiSecret',
+  'paymentTerminals.idtech.webhookSecret',
+];
 const SIM_SIGNAL_GOOD_DBM_KEY = 'sim.signal.goodDbm';
 const SIM_SIGNAL_FAIR_DBM_KEY = 'sim.signal.fairDbm';
 // WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
@@ -268,17 +280,22 @@ const NOTIFICATION_TEST_SINK_VARS = [
 /** Env var that points the CSMS SIM provider adapters at a local mock, refused in every environment. */
 const SIM_PROVIDER_TEST_BASE_URL = 'SIM_PROVIDER_TEST_BASE_URL';
 
+/** Env var that points the CSMS ID TECH terminal adapter at a local mock, refused in every environment. */
+const PAYMENT_TERMINAL_TEST_BASE_URL = 'PAYMENT_TERMINAL_TEST_BASE_URL';
+
 /**
  * Env vars the stack derives itself (app-stack.ts), refused in every service
  * `env` and `secrets` in every environment: the service env is applied after
  * the derived values, so `PAYMENTS_ALLOW_SIMULATED: 'true'` or
  * `NODE_ENV: test` there undid the prod refusal of the simulated provider and
  * the weak secret checks (security review R2-L1). Set them through their
- * config fields (`payments.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+ * config fields (`payments.allowSimulatedProvider`,
+ * `paymentTerminals.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
  */
 export const DERIVED_SERVICE_ENV_VARS = [
   'NODE_ENV',
   'PAYMENTS_ALLOW_SIMULATED',
+  'PAYMENT_TERMINALS_ALLOW_SIMULATED',
   'SEED_DEMO',
   'TRUST_PROXY',
   'OCPP_TRUSTED_PROXY_CIDRS',
@@ -560,6 +577,9 @@ export const configSchema = z
         // POSTs per IP per 5 minutes to the Adyen webhook, which the country
         // rule exempts. Adyen batches events and retries failed deliveries.
         adyenWebhookRateLimitPer5Min: z.number().int().min(100).default(1000),
+        // POSTs per IP per 5 minutes to the payment terminal webhooks
+        // (/v1/webhooks/payment-terminals/*), which the country rule exempts.
+        paymentTerminalWebhookRateLimitPer5Min: z.number().int().min(100).default(1000),
         // Seeds the WAF IP set that lets Stripe webhooks through. Source:
         // https://stripe.com/files/ips/ips_webhooks.json. Edit the live set
         // with scripts/stripe-webhook-ips.sh. An empty list removes the rule.
@@ -653,6 +673,16 @@ export const configSchema = z
     // services (PAYMENTS_ALLOW_SIMULATED). It moves no money. Not allowed in
     // prod; required with seedDemo, whose drivers have simulated cards.
     payments: z
+      .strictObject({
+        allowSimulatedProvider: z.boolean().default(false),
+      })
+      .prefault({}),
+
+    // Allows the simulated payment terminal provider in the api and worker
+    // services (PAYMENT_TERMINALS_ALLOW_SIMULATED). It moves no money. Not
+    // allowed in prod. The demo seed creates no terminals, so seedDemo does
+    // not need it.
+    paymentTerminals: z
       .strictObject({
         allowSimulatedProvider: z.boolean().default(false),
       })
@@ -776,6 +806,14 @@ export const configSchema = z
             message: `${SIM_PROVIDER_TEST_BASE_URL} is not allowed: the SIM provider mock is for the local development stack only`,
           });
         }
+        // The terminal mock would receive the ID TECH credentials: local stack only.
+        if (PAYMENT_TERMINAL_TEST_BASE_URL in c.services[name][block]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['services', name, block, PAYMENT_TERMINAL_TEST_BASE_URL],
+            message: `${PAYMENT_TERMINAL_TEST_BASE_URL} is not allowed: the payment terminal mock is for the local development stack only`,
+          });
+        }
       }
     }
     for (const name of SERVICE_NAMES) {
@@ -893,6 +931,13 @@ export const configSchema = z
           path: ['appSettings', key],
           message:
             'credentials must be entered in the dashboard: the 1NCE client secret is stored as sim.1nce.clientSecretEnc',
+        });
+      }
+      if (IDTECH_SECRET_KEYS.includes(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message: `credentials must be entered in the dashboard: the ID TECH secret is stored as ${key}Enc`,
         });
       }
       if (key === 'stripe.preAuthAmountCents' || key === 'stripe.platformFeePercent') {
@@ -1033,6 +1078,13 @@ export const configSchema = z
         code: 'custom',
         path: ['payments', 'allowSimulatedProvider'],
         message: 'the simulated payment provider is not allowed in prod',
+      });
+    }
+    if (c.paymentTerminals.allowSimulatedProvider && c.env === 'prod') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['paymentTerminals', 'allowSimulatedProvider'],
+        message: 'the simulated payment terminal provider is not allowed in prod',
       });
     }
     if (c.seedDemo.enabled && !c.payments.allowSimulatedProvider) {
@@ -1217,6 +1269,39 @@ export const configSchema = z
         path: ['appSettings', SIM_ONENCE_CLIENT_ID_KEY],
         message:
           'use the 1NCE API client id: 1 to 128 printable characters without a space or colon',
+      });
+    }
+    // Payment terminals (v0.1.49), validated like the Helm chart and
+    // PUT /v1/settings/payment-terminals.
+    const idtechEnabled = c.appSettings[IDTECH_ENABLED_KEY];
+    if (idtechEnabled != null && typeof idtechEnabled !== 'boolean') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', IDTECH_ENABLED_KEY],
+        message: 'use true or false',
+      });
+    }
+    const idtechEnvironment = c.appSettings[IDTECH_ENVIRONMENT_KEY];
+    if (
+      idtechEnvironment != null &&
+      (typeof idtechEnvironment !== 'string' || !IDTECH_ENVIRONMENTS.includes(idtechEnvironment))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', IDTECH_ENVIRONMENT_KEY],
+        message: 'use sandbox or production',
+      });
+    }
+    const idtechMerchantId = c.appSettings[IDTECH_MERCHANT_ID_KEY];
+    if (
+      idtechMerchantId != null &&
+      (typeof idtechMerchantId !== 'string' || !IDTECH_MERCHANT_ID_PATTERN.test(idtechMerchantId))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', IDTECH_MERCHANT_ID_KEY],
+        message:
+          'use the ID TECH merchant id as a quoted string of 1 to 64 letters, numbers, _ or -',
       });
     }
     const goodDbm = c.appSettings[SIM_SIGNAL_GOOD_DBM_KEY];

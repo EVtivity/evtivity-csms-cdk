@@ -225,6 +225,11 @@ export class AppStack extends Stack {
       if (name === 'api' || name === 'ocpp' || name === 'worker') {
         environment['PAYMENTS_ALLOW_SIMULATED'] = String(config.payments.allowSimulatedProvider);
       }
+      if (name === 'api' || name === 'worker') {
+        environment['PAYMENT_TERMINALS_ALLOW_SIMULATED'] = String(
+          config.paymentTerminals.allowSimulatedProvider,
+        );
+      }
 
       switch (name) {
         case 'api':

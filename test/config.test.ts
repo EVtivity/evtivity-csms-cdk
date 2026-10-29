@@ -158,6 +158,15 @@ void describe('config validation', () => {
       loadWith('waf:\n  adyenWebhookRateLimitPer5Min: 50\n'),
       /adyenWebhookRateLimitPer5Min/,
     );
+    assert.equal(
+      (loadWith('')() as { waf: { paymentTerminalWebhookRateLimitPer5Min: number } }).waf
+        .paymentTerminalWebhookRateLimitPer5Min,
+      1000,
+    );
+    assert.throws(
+      loadWith('waf:\n  paymentTerminalWebhookRateLimitPer5Min: 50\n'),
+      /paymentTerminalWebhookRateLimitPer5Min/,
+    );
   });
 
   void it('rejects the removed currency settings and unsupported company currencies', () => {
@@ -471,6 +480,27 @@ void describe('config validation', () => {
     );
   });
 
+  void it('gates the simulated payment terminal provider', () => {
+    type Terminals = { paymentTerminals: { allowSimulatedProvider: boolean } };
+    const terminals = (local: string, base = BASE) =>
+      (loadWith(local, base)() as Terminals).paymentTerminals;
+    assert.equal(terminals('').allowSimulatedProvider, false);
+    assert.equal(
+      terminals('paymentTerminals:\n  allowSimulatedProvider: true\n').allowSimulatedProvider,
+      true,
+    );
+    assert.throws(
+      loadWith('paymentTerminals:\n  allowSimulatedProvider: true\n', { ...BASE, env: 'prod' }),
+      /simulated payment terminal provider is not allowed in prod/,
+    );
+    assert.throws(loadWith('paymentTerminals:\n  allowSimulatedProvider: "true"\n'));
+    assert.throws(loadWith('paymentTerminals:\n  testBaseUrl: http://x\n'));
+    // The demo seed creates no terminals.
+    assert.doesNotThrow(
+      loadWith('seedDemo:\n  enabled: true\npayments:\n  allowSimulatedProvider: true\n'),
+    );
+  });
+
   void it('validates the payment provider setting', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: stripe\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: none\n'));
@@ -657,6 +687,33 @@ void describe('config validation', () => {
     );
   });
 
+  void it('refuses the payment terminal mock in every service and environment', () => {
+    for (const env of ['dev', 'qa', 'prod'] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'evt-config-'));
+      writeFileSync(join(dir, `${env}.yaml`), readFileSync(`config/${env}.yaml`, 'utf-8'));
+      const loadEnv = (local: string) => () => {
+        writeFileSync(join(dir, `${env}.local.yaml`), local);
+        return loadConfig(env, dir);
+      };
+      assert.doesNotThrow(loadEnv(''));
+      for (const service of ['api', 'ocpp', 'worker', 'ocpi']) {
+        for (const block of ['env', 'secrets']) {
+          assert.throws(
+            loadEnv(
+              `services:\n  ${service}:\n    ${block}:\n      PAYMENT_TERMINAL_TEST_BASE_URL: http://terminal-mock:8080\n`,
+            ),
+            /PAYMENT_TERMINAL_TEST_BASE_URL is not allowed/,
+            `${env} ${service} ${block}`,
+          );
+        }
+      }
+      assert.throws(
+        loadEnv("services:\n  worker:\n    env:\n      PAYMENT_TERMINAL_TEST_BASE_URL: ''\n"),
+        /PAYMENT_TERMINAL_TEST_BASE_URL is not allowed/,
+      );
+    }
+  });
+
   void it('refuses the data retention keys: they are set in Settings > Data Retention', () => {
     for (const key of [
       'audit.retentionDays',
@@ -723,6 +780,40 @@ void describe('config validation', () => {
       loadWith('appSettings:\n  sim.1nce.clientSecret: secret\n'),
       /must be entered in the dashboard/,
     );
+    // Payment terminals (v0.1.49): the switch, environment and merchant id; the
+    // ID TECH secrets are entered in the dashboard.
+    assert.doesNotThrow(
+      loadWith(
+        'appSettings:\n  paymentTerminals.idtech.enabled: true\n  paymentTerminals.idtech.environment: production\n  paymentTerminals.idtech.merchantId: merchant_01-A\n',
+      ),
+    );
+    assert.throws(
+      loadWith('appSettings:\n  paymentTerminals.idtech.enabled: "true"\n'),
+      /true or false/,
+    );
+    for (const environment of ['live', '""', 'true']) {
+      assert.throws(
+        loadWith(`appSettings:\n  paymentTerminals.idtech.environment: ${environment}\n`),
+        /sandbox or production/,
+        environment,
+      );
+    }
+    for (const merchantId of ['"two words"', '""', '12345', `"${'m'.repeat(65)}"`]) {
+      assert.throws(
+        loadWith(`appSettings:\n  paymentTerminals.idtech.merchantId: ${merchantId}\n`),
+        /ID TECH merchant id/,
+        merchantId,
+      );
+    }
+    for (const name of ['apiKey', 'apiSecret', 'webhookSecret']) {
+      for (const key of [`paymentTerminals.idtech.${name}`, `paymentTerminals.idtech.${name}Enc`]) {
+        assert.throws(
+          loadWith(`appSettings:\n  ${key}: secret\n`),
+          /must be entered in the dashboard/,
+          key,
+        );
+      }
+    }
     assert.throws(
       loadWith('appSettings:\n  sim.1nce.clientSecretEnc: secret\n'),
       /must be entered in the dashboard/,

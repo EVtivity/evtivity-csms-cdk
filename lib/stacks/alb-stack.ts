@@ -302,6 +302,17 @@ export class AlbStack extends Stack {
       apiHost == null
         ? undefined
         : all([hostIs(apiHost), methodIs('POST'), path('EXACTLY', '/v1/webhooks/payments/adyen')]);
+    // Payment terminal providers (ID TECH) publish no webhook IP ranges either.
+    // The API verifies the provider signature of every event, and
+    // PaymentTerminalWebhookRateLimit bounds the exempt path.
+    const terminalWebhook =
+      apiHost == null
+        ? undefined
+        : all([
+            hostIs(apiHost),
+            methodIs('POST'),
+            path('STARTS_WITH', '/v1/webhooks/payment-terminals/'),
+          ]);
 
     const stripeIps = config.waf.stripeWebhookIps;
     if (apiHost != null && stripeIps.length > 0) {
@@ -373,9 +384,12 @@ export class AlbStack extends Stack {
         priority: 5,
         action: { block: {} },
         statement: all(
-          [outside, notOcpp, adyenWebhook ? not(adyenWebhook) : undefined].filter(
-            (st): st is Statement => st != null,
-          ),
+          [
+            outside,
+            notOcpp,
+            adyenWebhook ? not(adyenWebhook) : undefined,
+            terminalWebhook ? not(terminalWebhook) : undefined,
+          ].filter((st): st is Statement => st != null),
         ),
         visibilityConfig: visibility('GeoAllow'),
       });
@@ -430,6 +444,16 @@ export class AlbStack extends Stack {
           104,
           config.waf.adyenWebhookRateLimitPer5Min,
           adyenWebhook,
+        ),
+      );
+    }
+    if (terminalWebhook != null) {
+      rules.push(
+        rateLimit(
+          'PaymentTerminalWebhookRateLimit',
+          105,
+          config.waf.paymentTerminalWebhookRateLimitPer5Min,
+          terminalWebhook,
         ),
       );
     }
