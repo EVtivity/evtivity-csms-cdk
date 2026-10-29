@@ -86,6 +86,10 @@ const MFA_REQUIRE_DRIVERS_KEY = 'security.mfa.requireDrivers';
 const SIM_OCPP16_SIGNAL_KEYS_KEY = 'sim.ocpp16.signalKeys';
 const SIM_HOLOGRAM_ORG_ID_KEY = 'sim.hologram.orgId';
 const SIM_HOLOGRAM_ORG_ID_PATTERN = /^\d{1,15}$/;
+// The 1NCE client id (v0.1.49): `isOneNceClientId` of `@evtivity/lib/sim-settings`, 1 to 128
+// printable ASCII characters without a space or colon (change both together).
+const SIM_ONENCE_CLIENT_ID_KEY = 'sim.1nce.clientId';
+const SIM_ONENCE_CLIENT_ID_PATTERN = /^[!-9;-~]{1,128}$/;
 const SIM_SIGNAL_GOOD_DBM_KEY = 'sim.signal.goodDbm';
 const SIM_SIGNAL_FAIR_DBM_KEY = 'sim.signal.fairDbm';
 // WebAuthn relying party ID (services.api.env.WEBAUTHN_RP_ID): a domain name with at least two
@@ -883,6 +887,14 @@ export const configSchema = z
             'credentials must be entered in the dashboard: the Hologram API key is stored as sim.hologram.apiKeyEnc',
         });
       }
+      if (key === 'sim.1nce.clientSecret') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['appSettings', key],
+          message:
+            'credentials must be entered in the dashboard: the 1NCE client secret is stored as sim.1nce.clientSecretEnc',
+        });
+      }
       if (key === 'stripe.preAuthAmountCents' || key === 'stripe.platformFeePercent') {
         ctx.addIssue({
           code: 'custom',
@@ -1178,7 +1190,7 @@ export const configSchema = z
     numberIssue('sim.signal.alertBelowDbm', -140, -40, true);
     numberIssue(SIM_SIGNAL_GOOD_DBM_KEY, -140, -40, true);
     numberIssue(SIM_SIGNAL_FAIR_DBM_KEY, -140, -40, true);
-    for (const key of ['sim.hologram.enabled', 'sim.stationSignal.enabled']) {
+    for (const key of ['sim.hologram.enabled', 'sim.1nce.enabled', 'sim.stationSignal.enabled']) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
@@ -1193,6 +1205,18 @@ export const configSchema = z
         code: 'custom',
         path: ['appSettings', SIM_HOLOGRAM_ORG_ID_KEY],
         message: 'use the Hologram organization id as a quoted string of 1 to 15 digits',
+      });
+    }
+    const oneNceClientId = c.appSettings[SIM_ONENCE_CLIENT_ID_KEY];
+    if (
+      oneNceClientId != null &&
+      (typeof oneNceClientId !== 'string' || !SIM_ONENCE_CLIENT_ID_PATTERN.test(oneNceClientId))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', SIM_ONENCE_CLIENT_ID_KEY],
+        message:
+          'use the 1NCE API client id: 1 to 128 printable characters without a space or colon',
       });
     }
     const goodDbm = c.appSettings[SIM_SIGNAL_GOOD_DBM_KEY];

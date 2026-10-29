@@ -343,12 +343,14 @@ The synth applies the same rules as the CSMS validators and the Helm chart.
 
 ### SIM provider settings in `appSettings`
 
-SIM providers and the station signal read are off on a fresh install: nothing calls a SIM provider or reads a station until a switch is on. Leave a key out to keep the value set in Settings > Integrations > SIM Providers. The Hologram API key is a secret entered in the dashboard: the synth fails on `sim.hologram.apiKeyEnc` and `sim.hologram.apiKey`.
+SIM providers and the station signal read are off on a fresh install: nothing calls a SIM provider or reads a station until a switch is on. Leave a key out to keep the value set in Settings > Integrations > SIM Providers. The Hologram API key and the 1NCE client secret are secrets entered in the dashboard: the synth fails on `sim.hologram.apiKeyEnc`, `sim.hologram.apiKey`, `sim.1nce.clientSecretEnc` and `sim.1nce.clientSecret`.
 
 | Key                                        | Values                                                                                        |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------- |
 | `sim.hologram.enabled`                     | `true` or `false`                                                                             |
 | `sim.hologram.orgId`                       | Hologram organization id, a quoted string of 1 to 15 digits                                   |
+| `sim.1nce.enabled`                         | `true` or `false`                                                                             |
+| `sim.1nce.clientId`                        | 1NCE Management API client id, 1 to 128 printable characters without a space or colon         |
 | `sim.sessions.retentionDays`               | Whole number from 7 to 730 (90 on a fresh install)                                            |
 | `sim.sessions.fetchDays`                   | Whole number from 1 to 31, the default period of a Refresh (7 on a fresh install)             |
 | `sim.stationSignal.enabled`                | `true` or `false`                                                                             |

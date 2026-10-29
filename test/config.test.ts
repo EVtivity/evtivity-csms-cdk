@@ -705,9 +705,28 @@ void describe('config validation', () => {
       loadWith('appSettings:\n  sim.hologram.apiKey: secret\n'),
       /must be entered in the dashboard/,
     );
-    for (const key of ['sim.hologram.enabled', 'sim.stationSignal.enabled']) {
+    for (const key of ['sim.hologram.enabled', 'sim.1nce.enabled', 'sim.stationSignal.enabled']) {
       assert.throws(loadWith(`appSettings:\n  ${key}: "true"\n`), /true or false/, key);
     }
+    // 1NCE (v0.1.49): the switch and the client id; the client secret is entered in the dashboard.
+    assert.doesNotThrow(
+      loadWith('appSettings:\n  sim.1nce.enabled: true\n  sim.1nce.clientId: client-1.A_b\n'),
+    );
+    for (const clientId of ['"user:pass"', '"two words"', '""', '12345', `"${'x'.repeat(129)}"`]) {
+      assert.throws(
+        loadWith(`appSettings:\n  sim.1nce.clientId: ${clientId}\n`),
+        /1NCE API client id/,
+        clientId,
+      );
+    }
+    assert.throws(
+      loadWith('appSettings:\n  sim.1nce.clientSecret: secret\n'),
+      /must be entered in the dashboard/,
+    );
+    assert.throws(
+      loadWith('appSettings:\n  sim.1nce.clientSecretEnc: secret\n'),
+      /must be entered in the dashboard/,
+    );
     assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: 12345\n'), /1 to 15 digits/);
     assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: org-12\n'), /1 to 15 digits/);
     assert.throws(loadWith('appSettings:\n  sim.hologram.orgId: ""\n'), /1 to 15 digits/);
