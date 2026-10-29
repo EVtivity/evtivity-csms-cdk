@@ -158,15 +158,6 @@ void describe('config validation', () => {
       loadWith('waf:\n  adyenWebhookRateLimitPer5Min: 50\n'),
       /adyenWebhookRateLimitPer5Min/,
     );
-    assert.equal(
-      (loadWith('')() as { waf: { paymentTerminalWebhookRateLimitPer5Min: number } }).waf
-        .paymentTerminalWebhookRateLimitPer5Min,
-      1000,
-    );
-    assert.throws(
-      loadWith('waf:\n  paymentTerminalWebhookRateLimitPer5Min: 50\n'),
-      /paymentTerminalWebhookRateLimitPer5Min/,
-    );
   });
 
   void it('rejects the removed currency settings and unsupported company currencies', () => {

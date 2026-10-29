@@ -294,24 +294,22 @@ export class AlbStack extends Stack {
     );
     // Exempts the OCPP host from address-based rules. Undefined when OCPP is off.
     const notOcpp = ocppHost == null ? undefined : not(hostIs(ocppHost));
-    // Adyen publishes no webhook IP ranges and sends from its own data centers
-    // (EU for most accounts), so the country rule would block it. The API
-    // checks Basic auth and the HMAC signature of every item, and
-    // AdyenWebhookRateLimit bounds the exempt path. Undefined when the API is off.
-    const adyenWebhook =
-      apiHost == null
-        ? undefined
-        : all([hostIs(apiHost), methodIs('POST'), path('EXACTLY', '/v1/webhooks/payments/adyen')]);
-    // Payment terminal providers (ID TECH) publish no webhook IP ranges either.
-    // The API verifies the provider signature of every event, and
-    // PaymentTerminalWebhookRateLimit bounds the exempt path.
-    const terminalWebhook =
+    // Adyen and the payment terminal providers (ID TECH) publish no webhook IP
+    // ranges, and Adyen sends from its own data centers (EU for most accounts),
+    // so the country rule would block them. The API checks the signature of
+    // every event (Adyen: Basic auth and HMAC), and PaymentWebhookRateLimit
+    // bounds the exempt paths. One statement for both keeps the web ACL inside
+    // the 1,500 WCU of the base price. Undefined when the API is off.
+    const providerWebhook =
       apiHost == null
         ? undefined
         : all([
             hostIs(apiHost),
             methodIs('POST'),
-            path('STARTS_WITH', '/v1/webhooks/payment-terminals/'),
+            any([
+              path('EXACTLY', '/v1/webhooks/payments/adyen'),
+              path('STARTS_WITH', '/v1/webhooks/payment-terminals/'),
+            ]),
           ]);
 
     const stripeIps = config.waf.stripeWebhookIps;
@@ -384,12 +382,9 @@ export class AlbStack extends Stack {
         priority: 5,
         action: { block: {} },
         statement: all(
-          [
-            outside,
-            notOcpp,
-            adyenWebhook ? not(adyenWebhook) : undefined,
-            terminalWebhook ? not(terminalWebhook) : undefined,
-          ].filter((st): st is Statement => st != null),
+          [outside, notOcpp, providerWebhook ? not(providerWebhook) : undefined].filter(
+            (st): st is Statement => st != null,
+          ),
         ),
         visibilityConfig: visibility('GeoAllow'),
       });
@@ -437,23 +432,13 @@ export class AlbStack extends Stack {
         ),
       );
     }
-    if (adyenWebhook != null) {
+    if (providerWebhook != null) {
       rules.push(
         rateLimit(
-          'AdyenWebhookRateLimit',
+          'PaymentWebhookRateLimit',
           104,
           config.waf.adyenWebhookRateLimitPer5Min,
-          adyenWebhook,
-        ),
-      );
-    }
-    if (terminalWebhook != null) {
-      rules.push(
-        rateLimit(
-          'PaymentTerminalWebhookRateLimit',
-          105,
-          config.waf.paymentTerminalWebhookRateLimitPer5Min,
-          terminalWebhook,
+          providerWebhook,
         ),
       );
     }

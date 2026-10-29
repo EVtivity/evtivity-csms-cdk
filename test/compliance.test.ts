@@ -503,49 +503,38 @@ for (const env of ENVS) {
         );
       }
 
-      // Adyen publishes no IP ranges and sends from outside the allowed
-      // countries: the exact webhook POST skips the country rule and has its
-      // own rate limit. Every other API path stays behind the country rule.
+      // Adyen and the payment terminal providers publish no IP ranges and can
+      // send from outside the allowed countries: their webhook POSTs skip the
+      // country rule and share one rate limit. Every other API path stays
+      // behind the country rule.
       const adyenPath = '"SearchString":"/v1/webhooks/payments/adyen"';
-      const adyen = byName('AdyenWebhookRateLimit');
-      assert.equal(Boolean(adyen), api != null);
+      const terminalPath = '"SearchString":"/v1/webhooks/payment-terminals/"';
+      const webhook = byName('PaymentWebhookRateLimit');
+      assert.equal(Boolean(webhook), api != null);
+      assert.equal(byName('AdyenWebhookRateLimit'), undefined);
       if (api) {
-        const limit = text(adyen);
+        const limit = text(webhook);
         assert.match(limit, new RegExp(`"Limit":${String(w.adyenWebhookRateLimitPer5Min)}`));
         for (const s of ['"SearchString":"POST"', `"SearchString":"${api}"`]) {
-          assert.ok(limit.includes(s), `Adyen limit matches ${s}`);
+          assert.ok(limit.includes(s), `webhook limit matches ${s}`);
         }
         assert.ok(limit.includes(`"PositionalConstraint":"EXACTLY",${adyenPath}`), 'exact path');
+        assert.ok(
+          limit.includes(`"PositionalConstraint":"STARTS_WITH",${terminalPath}`),
+          'terminal prefix',
+        );
         if (geo) {
           const geoText = text(geo);
           assert.ok(
             geoText.includes(`{"NotStatement":{"Statement":{"AndStatement":{"Statements":[`),
-            'GeoAllow exempts the Adyen webhook',
+            'GeoAllow exempts the provider webhooks',
           );
           assert.ok(geoText.includes(adyenPath), 'GeoAllow names the Adyen path');
+          assert.ok(geoText.includes(terminalPath), 'GeoAllow names the terminal path');
           assert.ok(!geoText.includes('/v1/webhooks/payments/stripe'), 'Stripe is not geo exempt');
         }
       } else if (geo) {
         assert.ok(!text(geo).includes(adyenPath));
-      }
-
-      // Payment terminal providers publish no IP ranges either: the webhook POSTs
-      // skip the country rule and have their own rate limit.
-      const terminalPath = '"SearchString":"/v1/webhooks/payment-terminals/"';
-      const terminal = byName('PaymentTerminalWebhookRateLimit');
-      assert.equal(Boolean(terminal), api != null);
-      if (api) {
-        const limit = text(terminal);
-        assert.match(
-          limit,
-          new RegExp(`"Limit":${String(w.paymentTerminalWebhookRateLimitPer5Min)}`),
-        );
-        for (const s of ['"SearchString":"POST"', `"SearchString":"${api}"`]) {
-          assert.ok(limit.includes(s), `terminal webhook limit matches ${s}`);
-        }
-        assert.ok(limit.includes(`"PositionalConstraint":"STARTS_WITH",${terminalPath}`), 'prefix');
-        if (geo) assert.ok(text(geo).includes(terminalPath), 'GeoAllow names the terminal path');
-      } else if (geo) {
         assert.ok(!text(geo).includes(terminalPath));
       }
 
