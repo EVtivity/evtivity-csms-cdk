@@ -616,6 +616,31 @@ void describe('config validation', () => {
     );
   });
 
+  void it('checks the storage image origins of STORAGE_IMG_SRC', () => {
+    const ok = loadWith(
+      'storage:\n  imgSrc:\n    - https://s3.example.com\n    - http://minio.internal:9000\n    - "https://*.wasabisys.com"\n',
+    )() as Config;
+    assert.deepEqual(ok.storage.imgSrc, [
+      'https://s3.example.com',
+      'http://minio.internal:9000',
+      'https://*.wasabisys.com',
+    ]);
+    assert.deepEqual((loadWith('{}\n')() as Config).storage.imgSrc, []);
+    for (const bad of [
+      'https://s3.example.com/path',
+      'https://s3.example.com;',
+      "'unsafe-inline'",
+      'https://s3.example.com https://other.example.com',
+      'ftp://s3.example.com',
+    ]) {
+      assert.throws(
+        loadWith(`storage:\n  imgSrc:\n    - ${JSON.stringify(bad)}\n`),
+        /use an origin scheme:\/\/host\[:port\]/,
+        bad,
+      );
+    }
+  });
+
   void it('refuses service env overrides of derived security values in every environment (R2-L1)', () => {
     for (const env of ['dev', 'qa', 'prod'] as const) {
       const dir = mkdtempSync(join(tmpdir(), 'evt-config-'));

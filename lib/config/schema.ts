@@ -292,6 +292,20 @@ const PAYMENT_TERMINAL_TEST_BASE_URL = 'PAYMENT_TERMINAL_TEST_BASE_URL';
  * config fields (`payments.allowSimulatedProvider`,
  * `paymentTerminals.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
  */
+/**
+ * One origin of STORAGE_IMG_SRC: scheme://host[:port] with an optional *.
+ * wildcard, the grammar the CSMS and portal images check at start
+ * (docker-security-headers.sh) and the Helm chart checks for storage.imgSrc.
+ */
+export const STORAGE_IMG_SRC_ORIGIN =
+  /^https?:\/\/(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$/;
+const storageImgSrcOrigin = z
+  .string()
+  .regex(
+    STORAGE_IMG_SRC_ORIGIN,
+    'use an origin scheme://host[:port], for example https://s3.example.com',
+  );
+
 export const DERIVED_SERVICE_ENV_VARS = [
   'NODE_ENV',
   'PAYMENTS_ALLOW_SIMULATED',
@@ -303,6 +317,7 @@ export const DERIVED_SERVICE_ENV_VARS = [
   'COOKIE_DOMAIN',
   'JWT_SECRET',
   'SETTINGS_ENCRYPTION_KEY',
+  'STORAGE_IMG_SRC',
 ] as const;
 
 const autoscaling = z
@@ -539,6 +554,11 @@ export const configSchema = z
         logsExpirationDays: z.number().int().min(1).default(30),
         removal: z.enum(['destroy', 'retain']).default('destroy'),
         extraCorsOrigins: z.array(z.url()).default([]),
+        // Origins the CSMS and the driver portal may load stored images from,
+        // added to their CSP img-src (STORAGE_IMG_SRC on both tasks). Needed only
+        // when Settings > Integrations > S3 uses an S3-compatible provider: the
+        // stack bucket is AWS S3, which https://*.amazonaws.com already covers.
+        imgSrc: z.array(storageImgSrcOrigin).max(20).default([]),
       })
       .prefault({}),
 

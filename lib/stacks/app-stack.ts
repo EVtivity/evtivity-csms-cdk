@@ -308,6 +308,10 @@ export class AppStack extends Stack {
             RUNTIME_PORTAL_URL: urls.portal,
             RUNTIME_CSMS_URL: urls.csms,
             RUNTIME_OCPP_URL: urls.ocpp,
+            // Object storage origins of the CSP img-src (S3-compatible providers).
+            ...(config.storage.imgSrc.length > 0 && {
+              STORAGE_IMG_SRC: config.storage.imgSrc.join(' '),
+            }),
           });
           break;
         case 'worker':

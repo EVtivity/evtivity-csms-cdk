@@ -378,6 +378,16 @@ The ID TECH payment terminal provider is off on a fresh install. Leave a key out
 
 The synth applies the same rules as the CSMS settings route and the Helm chart.
 
+### Storage image origins
+
+The stack bucket is AWS S3, and the CSMS and portal pages always allow images from `https://*.amazonaws.com`. When Settings > Integrations > S3 uses an S3-compatible provider (MinIO, Wasabi and the like), list the origins its images load from in `storage.imgSrc`: the endpoint origin, or `https://<bucket>.<endpoint host>` with path-style requests off. The stack sets them, space-separated, as `STORAGE_IMG_SRC` on the csms and portal tasks, which add them to the CSP `img-src`. Each entry is `scheme://host[:port]` with an optional `*.` wildcard, at most 20; anything else fails the synth. `STORAGE_IMG_SRC` cannot be set in a service `env` or `secrets`.
+
+```yaml
+storage:
+  imgSrc:
+    - https://s3.wasabisys.com
+```
+
 ## Observability and alerts
 
 Grafana (with the Helm chart's dashboards and alert rules), the CloudWatch dashboards and alarms, the alerts topic, and Grafana access are covered in [observability.md](observability.md).

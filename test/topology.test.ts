@@ -144,3 +144,41 @@ void describe('worker scaling', () => {
     assert.equal(props.MaxCapacity, 4);
   });
 });
+
+/** The container environment of a task definition family, as name to value. */
+function taskEnv(template: Template, family: string): Record<string, unknown> {
+  const tasks = template.findResources('AWS::ECS::TaskDefinition', {
+    Properties: { Family: family },
+  });
+  const [task] = Object.values(tasks) as {
+    Properties: { ContainerDefinitions: { Environment?: { Name: string; Value: unknown }[] }[] };
+  }[];
+  assert.ok(task != null, `no task definition ${family}`);
+  return Object.fromEntries(
+    (task.Properties.ContainerDefinitions[0]?.Environment ?? []).map((e) => [e.Name, e.Value]),
+  );
+}
+
+void describe('storage image origins', () => {
+  void it('sets STORAGE_IMG_SRC on the csms and portal tasks only when storage.imgSrc lists origins', () => {
+    const none = Template.fromStack(build(configOf('dev')).app);
+    for (const family of ['evtivity-dev-csms', 'evtivity-dev-portal']) {
+      assert.equal('STORAGE_IMG_SRC' in taskEnv(none, family), false, family);
+    }
+    const set = Template.fromStack(
+      build(
+        configOf('dev', (c) => {
+          c.storage.imgSrc = ['https://s3.example.com', 'https://*.wasabisys.com'];
+        }),
+      ).app,
+    );
+    for (const family of ['evtivity-dev-csms', 'evtivity-dev-portal']) {
+      assert.equal(
+        taskEnv(set, family)['STORAGE_IMG_SRC'],
+        'https://s3.example.com https://*.wasabisys.com',
+        family,
+      );
+    }
+    assert.equal('STORAGE_IMG_SRC' in taskEnv(set, 'evtivity-dev-api'), false);
+  });
+});
