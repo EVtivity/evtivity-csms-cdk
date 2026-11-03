@@ -24,7 +24,7 @@ Deploy [EVtivity CSMS](https://github.com/EVtivity/evtivity-csms), the open char
 - **Automatic credential rotation** for the database and cache users, with no downtime.
 - **Observability:** Prometheus and Grafana with the Helm chart's dashboards and alert rules, reading logs straight from CloudWatch. Alerts go to an SNS topic you can subscribe to.
 - **Security by default:** every container runs as a non-root user with a read-only filesystem, a web application firewall in qa and prod with AWS managed rules (SQL injection, common exploits, IP reputation), a country allowlist (US by default), and per-IP rate limits on sign-in and guest charging, and automated checks against the AWS Foundational Security Best Practices on every build.
-- **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, Spot capacity, a database that pauses when idle) and a highly available production layout.
+- **Cost-aware sizing:** small lower environments (a NAT instance instead of NAT gateways, a database that pauses when idle) and a highly available production layout.
 
 ## Environments
 
@@ -32,7 +32,7 @@ Three environments come ready to use. Each is one file in `config/`, and every v
 
 | Env    | Compute                                  | Database                                      | Cache                         | NAT             | WAF |
 | ------ | ---------------------------------------- | --------------------------------------------- | ----------------------------- | --------------- | --- |
-| `dev`  | 1 task per service, Fargate Spot         | Serverless v2, 0 to 2 ACU, pauses when idle   | t4g.micro, single node        | fck-nat         | off |
+| `dev`  | 1 task per service, Fargate on-demand    | Serverless v2, 0 to 2 ACU, pauses when idle   | t4g.micro, single node        | fck-nat         | off |
 | `qa`   | 1 task per service, on-demand            | Serverless v2, 0.5 to 4 ACU                   | t4g.micro, single node        | fck-nat         | on  |
 | `prod` | 2+ tasks per public service, autoscaling | Serverless v2, 1 to 16 ACU, writer and reader | t4g.medium, replica, failover | NAT gateway x 2 | on  |
 

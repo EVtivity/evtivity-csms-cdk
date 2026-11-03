@@ -27,6 +27,27 @@ function loadWith(local: string, base: Record<string, unknown> = BASE): () => un
 }
 
 void describe('config validation', () => {
+  void it('runs every service and observability task on on-demand Fargate, never Spot', () => {
+    const cfg = loadWith('')() as Config;
+    for (const [name, svc] of Object.entries(cfg.services)) {
+      assert.equal(svc.capacity, 'FARGATE', name);
+    }
+    assert.equal(cfg.observability.grafana.capacity, 'FARGATE');
+    assert.equal(cfg.observability.prometheus.capacity, 'FARGATE');
+    for (const env of ['dev', 'qa', 'prod']) {
+      assert.equal(/FARGATE_SPOT/.test(readFileSync(`config/${env}.yaml`, 'utf-8')), false, env);
+    }
+    assert.doesNotThrow(loadWith('services:\n  api:\n    capacity: FARGATE\n'));
+    assert.throws(
+      loadWith('services:\n  api:\n    capacity: FARGATE_SPOT\n'),
+      /Fargate Spot is not supported/,
+    );
+    assert.throws(
+      loadWith('observability:\n  grafana:\n    capacity: FARGATE_SPOT\n'),
+      /Fargate Spot is not supported/,
+    );
+  });
+
   void it('checks the passkey settings and the WebAuthn relying party ID', () => {
     assert.doesNotThrow(
       loadWith(

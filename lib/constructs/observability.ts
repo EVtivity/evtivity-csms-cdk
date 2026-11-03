@@ -68,7 +68,7 @@ interface ServiceOptions {
   user: { uid: string; gid: string };
   cpu: number;
   memoryMiB: number;
-  capacity: 'FARGATE' | 'FARGATE_SPOT';
+  capacity: 'FARGATE';
   port: number;
   healthPath: string;
   environment: Record<string, string>;

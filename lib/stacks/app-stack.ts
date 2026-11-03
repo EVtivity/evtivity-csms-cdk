@@ -578,7 +578,7 @@ export class AppStack extends Stack {
 
     // Services must be deleted before the cluster's capacity provider
     // association. Without this dependency CloudFormation may delete the
-    // association first, which fails while Fargate Spot tasks still run
+    // association first, which fails while the service tasks still run
     // ("The specified capacity provider is in use") and leaves the stack in
     // DELETE_FAILED on destroy. CDK creates the association in an aspect at
     // synth, so this one runs after it.

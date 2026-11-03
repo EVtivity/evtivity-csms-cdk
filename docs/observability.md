@@ -29,7 +29,7 @@ flowchart LR
 
 Why there is no Loki: the Helm chart ships logs to Loki because Kubernetes has no central log store. On AWS every service already writes to CloudWatch Logs, so Grafana reads it directly and a second copy would only add cost and moving parts. The logs dashboard is the one Grafana dashboard that differs from the Helm chart: the CDK generates it with Logs Insights queries instead of LogQL, with the same UID, title, and layout.
 
-Why the metrics store is a managed service: Prometheus needs a durable disk. Fargate tasks lose their local disk on every restart (deploys, the weekly credential redeploy, Spot interruptions), and Prometheus does not support NFS storage such as EFS. The Helm chart runs a Prometheus server on a persistent volume instead. The queries, dashboards, and alert rules are identical in both.
+Why the metrics store is a managed service: Prometheus needs a durable disk. Fargate tasks lose their local disk on every restart (deploys, the weekly credential redeploy, task replacements), and Prometheus does not support NFS storage such as EFS. The Helm chart runs a Prometheus server on a persistent volume instead. The queries, dashboards, and alert rules are identical in both.
 
 ## Finding application errors
 
@@ -147,7 +147,7 @@ The NAT instance also recovers without anyone subscribed: EC2 moves it to new ha
 | `observability.grafana.allowedCidrs`                     | `[]`       | Seeds the Grafana allowlist                                 |
 | `observability.grafana.hostname`                         | `grafana`  | `<hostname>.<subdomain>.<apex>`                             |
 | `observability.prometheus.scrapeIntervalSeconds`         | `60`       | Same as the Helm chart                                      |
-| `observability.<component>.cpu`, `memoryMiB`, `capacity` | see schema | `FARGATE_SPOT` is about 70% cheaper for dev                 |
+| `observability.<component>.cpu`, `memoryMiB`, `capacity` | see schema | `capacity` accepts only `FARGATE` (no Fargate Spot)         |
 | `monitoring.dashboard`                                   | `true`     | The three CloudWatch dashboards                             |
 | `monitoring.alarms`                                      | `true`     | The CloudWatch alarms listed above                          |
 | `monitoring.alarmEmail`                                  | none       | Subscribes an address to the alerts topic                   |
@@ -166,7 +166,7 @@ When a change moves a service to a different security group, deploy it so the ne
 
 ## Cost
 
-Observability adds about $5 to $11 per month in dev (Fargate Spot) and $15 to $21 in qa and prod: two small Fargate tasks, EFS, the metrics workspace (about $1 to $5 at one scrape target per minute), and S3, plus Logs Insights for each logs dashboard view. Environments without `waf.enabled` also pay about $6 per month for the web ACL that guards Grafana. See [`cost-report.md`](cost-report.md).
+Observability adds about $15 to $21 per month in every environment: two small Fargate tasks, EFS, the metrics workspace (about $1 to $5 at one scrape target per minute), and S3, plus Logs Insights for each logs dashboard view. Environments without `waf.enabled` also pay about $6 per month for the web ACL that guards Grafana. See [`cost-report.md`](cost-report.md).
 
 ## Troubleshooting
 

@@ -6,11 +6,11 @@ Monthly estimates for the committed `dev`, `qa`, and `prod` configs in us-east-1
 
 | Environment | Monthly estimate | Main drivers                                                                                             |
 | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| dev         | $127 to $191     | Aurora (36 to 49%), ALB with IPv4 (24%), Fargate Spot (10 to 15%)                                        |
+| dev         | $178 to $242     | Fargate (24 to 33%), Aurora (25 to 37%), ALB with IPv4 (12 to 17%)                                       |
 | qa          | $203 to $271     | Fargate (24 to 33%), Aurora (24 to 36%), ALB with IPv4 (15%)                                             |
 | prod        | $621 to $991     | Aurora writer and reader (30 to 37%), Fargate (28 to 30%), Valkey HA (8 to 13%), NAT gateways (9 to 13%) |
 
-Totals include observability (Prometheus and Grafana), which every environment enables. It adds $5 to $11 in dev (Fargate Spot) and $15 to $21 in qa and prod. The per-environment tables below list the platform without it.
+Totals include observability (Prometheus and Grafana), which every environment enables. It adds $15 to $21 in every environment. The per-environment tables below list the platform without it.
 
 Optional add-ons:
 
@@ -19,40 +19,39 @@ Optional add-ons:
 
 ## Unit prices (us-east-1)
 
-| Item                                          | Price                                                             |
-| --------------------------------------------- | ----------------------------------------------------------------- |
-| Fargate ARM64 vCPU                            | $0.03238 per vCPU-hour                                            |
-| Fargate ARM64 memory                          | $0.00356 per GB-hour                                              |
-| Fargate Spot                                  | Variable. Estimated at 70% off on-demand (AWS quotes "up to 70%") |
-| Aurora PostgreSQL Serverless v2               | $0.12 per ACU-hour                                                |
-| Aurora storage / I/O / extra backup           | $0.10 per GB-month / $0.20 per million I/O / $0.021 per GB-month  |
-| ElastiCache Valkey cache.t4g.micro            | $0.0128 per node-hour (Redis OSS: $0.016)                         |
-| ElastiCache Valkey cache.t4g.medium           | $0.052 per node-hour (Redis OSS: $0.065)                          |
-| Application or Network Load Balancer          | $0.0225 per hour, plus $0.008 per LCU-hour                        |
-| NAT gateway                                   | $0.045 per hour, plus $0.045 per GB processed                     |
-| EC2 t4g.nano (fck-nat)                        | $0.0042 per hour                                                  |
-| Public IPv4 address                           | $0.005 per hour ($3.65 per month)                                 |
-| WAF                                           | $5 per web ACL, $1 per rule, $0.60 per million requests           |
-| Secrets Manager                               | $0.40 per secret per month                                        |
-| CloudWatch Logs ingestion (custom and vended) | $0.50 per GB (first 10 TB)                                        |
-| CloudWatch metrics / alarms                   | $0.30 per metric-month (first 10,000) / $0.10 per alarm           |
+| Item                                          | Price                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------- |
+| Fargate ARM64 vCPU                            | $0.03238 per vCPU-hour                                           |
+| Fargate ARM64 memory                          | $0.00356 per GB-hour                                             |
+| Aurora PostgreSQL Serverless v2               | $0.12 per ACU-hour                                               |
+| Aurora storage / I/O / extra backup           | $0.10 per GB-month / $0.20 per million I/O / $0.021 per GB-month |
+| ElastiCache Valkey cache.t4g.micro            | $0.0128 per node-hour (Redis OSS: $0.016)                        |
+| ElastiCache Valkey cache.t4g.medium           | $0.052 per node-hour (Redis OSS: $0.065)                         |
+| Application or Network Load Balancer          | $0.0225 per hour, plus $0.008 per LCU-hour                       |
+| NAT gateway                                   | $0.045 per hour, plus $0.045 per GB processed                    |
+| EC2 t4g.nano (fck-nat)                        | $0.0042 per hour                                                 |
+| Public IPv4 address                           | $0.005 per hour ($3.65 per month)                                |
+| WAF                                           | $5 per web ACL, $1 per rule, $0.60 per million requests          |
+| Secrets Manager                               | $0.40 per secret per month                                       |
+| CloudWatch Logs ingestion (custom and vended) | $0.50 per GB (first 10 TB)                                       |
+| CloudWatch metrics / alarms                   | $0.30 per metric-month (first 10,000) / $0.10 per alarm          |
 
 ## dev
 
-| Line                                                                   | Monthly          |
-| ---------------------------------------------------------------------- | ---------------- |
-| Fargate Spot, 7 services (2.0 vCPU, 4.5 GB). On-demand would be $58.97 | $17.69           |
-| Aurora Serverless v2, 0.5 to 1 ACU average                             | $43.80 to $87.60 |
-| Aurora storage and I/O (under 10 GB, under 5 million I/O)              | $1 to $2         |
-| Valkey cache.t4g.micro, single node                                    | $9.34            |
-| ALB (hours plus 1 LCU)                                                 | $22.27           |
-| ALB public IPv4 x 2                                                    | $7.30            |
-| fck-nat: t4g.nano, 4 GB gp3, public IPv4                               | $7.04            |
-| Secrets Manager x 6                                                    | $2.40            |
-| Container Insights (about 60 metrics)                                  | $9 to $18        |
-| CloudWatch Logs (2 to 6 GB)                                            | $1 to $3         |
-| Cloud Map, Lambda, S3, other                                           | $1 to $3         |
-| **Total**                                                              | **$122 to $180** |
+| Line                                                      | Monthly          |
+| --------------------------------------------------------- | ---------------- |
+| Fargate on-demand, 7 services (2.0 vCPU, 4.5 GB)          | $58.97           |
+| Aurora Serverless v2, 0.5 to 1 ACU average                | $43.80 to $87.60 |
+| Aurora storage and I/O (under 10 GB, under 5 million I/O) | $1 to $2         |
+| Valkey cache.t4g.micro, single node                       | $9.34            |
+| ALB (hours plus 1 LCU)                                    | $22.27           |
+| ALB public IPv4 x 2                                       | $7.30            |
+| fck-nat: t4g.nano, 4 GB gp3, public IPv4                  | $7.04            |
+| Secrets Manager x 6                                       | $2.40            |
+| Container Insights (about 60 metrics)                     | $9 to $18        |
+| CloudWatch Logs (2 to 6 GB)                               | $1 to $3         |
+| Cloud Map, Lambda, S3, other                              | $1 to $3         |
+| **Total**                                                 | **$122 to $180** |
 
 ## qa
 
@@ -97,7 +96,7 @@ Optional add-ons:
 
 | Line                                                                                                                                                        | Monthly                        |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| Fargate: Prometheus 0.25 vCPU/0.5 GB, Grafana 0.25/0.5 GB (on-demand; dev on Spot about $4.33)                                                              | $14.42                         |
+| Fargate: Prometheus 0.25 vCPU/0.5 GB, Grafana 0.25/0.5 GB (on-demand)                                                                                       | $14.42                         |
 | Amazon Managed Service for Prometheus: first 40 million samples free, then $0.90 per 10 million (API metrics at a 60-second scrape stay near the free tier) | $0 to $4                       |
 | EFS (Grafana database, under 1 GB, elastic throughput)                                                                                                      | $0.25 to $1                    |
 | S3 for Grafana provisioning files                                                                                                                           | $0.05 to $0.25                 |
@@ -112,7 +111,7 @@ Grafana reads logs straight from CloudWatch Logs, so logs are stored once. The H
 - **Valkey instead of Redis OSS:** node pricing is 20% lower for the same instance class, and Valkey is protocol compatible with BullMQ and ioredis. ElastiCache Serverless is not used: its minimum is about $6 per month for Valkey but BullMQ needs `maxmemory-policy noeviction`, which Serverless does not let you set.
 - **Aurora Serverless v2 instead of provisioned:** at 0.5 to 1 ACU average ($44 to $88 per instance), Serverless v2 costs about the same as a small provisioned instance and scales up under load without an instance change. `aurora.mode: provisioned` switches when steady high load makes a fixed instance cheaper. Setting dev to `minCapacity: 0` only saves money when every service is scaled to zero: the worker runs cron jobs every minute, which keeps the database awake.
 - **fck-nat in dev and qa:** $7 per month against $36.50 for a NAT gateway plus $0.045 per GB. The trade is a single instance with no automatic failover (EXC-005).
-- **Fargate Spot in dev:** saves about $41 per month. Spot interruptions restart a task and drop its WebSockets. Qa and prod run on-demand.
+- **No Fargate Spot:** every environment runs on-demand Fargate. Spot would save about $51 per month in dev, but its interruptions stop tasks with two minutes notice, drop the station WebSockets and fail test runs, so the config refuses it.
 - **No interface VPC endpoints:** each endpoint costs $7.30 per month per AZ. Images come from ghcr.io, which needs the NAT anyway. The free S3 gateway endpoint is always on.
 - **No CDN, no Private CA, no Shield Advanced:** not required for the current traffic or compliance scope.
 - **Public IPv4 charges** add $14.60 to $21.90 per month per environment (ALB, NAT, optional NLB). There is no IPv6-only alternative for the ALB in this design.

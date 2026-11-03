@@ -76,7 +76,6 @@ Common changes:
 | Pin one service to another image                    | `services.<name>.imageTag`                                                                                                                                     |
 | Turn a service off                                  | `services.<name>.enabled: false` (dependencies are validated)                                                                                                  |
 | Size a service                                      | `services.<name>.cpu`, `memoryMiB`, `desiredCount`, `autoscaling`                                                                                              |
-| Cheaper, interruptible compute                      | `services.<name>.capacity: FARGATE_SPOT`                                                                                                                       |
 | Aurora capacity                                     | `aurora.minCapacity`, `maxCapacity`, `readers`, `mode`                                                                                                         |
 | Production sizing in a lower environment            | `sizing: prod` (see [Sizing preset](#sizing-preset-sizing-prod))                                                                                               |
 | Valkey size and HA                                  | `valkey.nodeType`, `valkey.replicas`, `valkey.multiAz` (see [Valkey replicas](#valkey-replicas))                                                               |
@@ -97,7 +96,7 @@ Aurora readers are pinned to the availability zones after the first (`vpc.availa
 
 The preset copies (`lib/config/sizing.ts`):
 
-- api, ocpp, ocpi, csms, portal, and worker: `cpu`, `memoryMiB`, `desiredCount`, `autoscaling`, `capacity` (on-demand or Spot), `deregistrationDelaySeconds`, `stopTimeoutSeconds`
+- api, ocpp, ocpi, csms, portal, and worker: `cpu`, `memoryMiB`, `desiredCount`, `autoscaling`, `capacity` (`FARGATE` only: Fargate Spot is refused, its interruptions stop tasks), `deregistrationDelaySeconds`, `stopTimeoutSeconds`
 - Aurora: `mode`, `minCapacity`, `maxCapacity`, `autoPauseSeconds`, `instanceClass`, `readers`, `performanceInsights`, `monitoringIntervalSeconds`, `poolMax`
 - Valkey: `nodeType`, `replicas`, `multiAz`
 - NAT `mode`, `count`, `instanceType`, and `vpc.interfaceEndpoints`

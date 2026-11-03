@@ -257,6 +257,15 @@ const fargateCpu = z
     message: `cpu must be one of ${FARGATE_CPU.join(', ')}`,
   });
 
+// On-demand Fargate only, in every environment: a Fargate Spot interruption stops a task with
+// two minutes notice, which drops the station WebSockets and the simulator stations and fails
+// test runs on dev (v0.1.49-beta.9). The key stays so existing configs that say FARGATE load.
+const fargateCapacity = z
+  .literal('FARGATE', {
+    error: 'capacity must be FARGATE: Fargate Spot is not supported (its interruptions stop tasks)',
+  })
+  .default('FARGATE');
+
 // CloudWatch Logs only accepts these retention values.
 const LOG_RETENTION = [
   1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288,
@@ -342,9 +351,7 @@ const serviceConfig = z.strictObject({
   memoryMiB: z.number().int().min(512).default(512),
   desiredCount: z.number().int().min(0).default(1),
   autoscaling: autoscaling.optional(),
-  // FARGATE_SPOT is about 70% cheaper. Spot tasks can be stopped with two
-  // minutes notice, so keep it off for prod services that hold WebSockets.
-  capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+  capacity: fargateCapacity,
   // Public hostname label, e.g. `api` -> api.<zone>. Defaults to the catalog.
   hostname: z
     .string()
@@ -775,7 +782,7 @@ export const configSchema = z
             allowedCidrs: z.array(z.cidrv4()).default([]),
             cpu: fargateCpu.default(256),
             memoryMiB: z.number().int().min(512).default(512),
-            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+            capacity: fargateCapacity,
           })
           .prefault({}),
         prometheus: z
@@ -784,7 +791,7 @@ export const configSchema = z
             scrapeIntervalSeconds: z.number().int().min(10).default(60),
             cpu: fargateCpu.default(256),
             memoryMiB: z.number().int().min(512).default(512),
-            capacity: z.enum(['FARGATE', 'FARGATE_SPOT']).default('FARGATE'),
+            capacity: fargateCapacity,
           })
           .prefault({}),
       })

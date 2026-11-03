@@ -1,5 +1,5 @@
 # EVtivity CSMS: dev environment.
-# Smallest footprint for engineer testing. Spot capacity, fck-nat, Aurora
+# Smallest footprint for engineer testing. On-demand Fargate, fck-nat, Aurora
 # that pauses when idle, a single Valkey node, no WAF. Everything is
 # destroyed with the stacks. Account and hosted zone id go in dev.local.yaml.
 env: dev
@@ -105,46 +105,36 @@ observability:
     # internet until you add addresses with scripts/grafana-access.sh. Set
     # office or VPN ranges in config/<env>.local.yaml.
     allowedCidrs: []
-    capacity: FARGATE_SPOT
-  prometheus:
-    capacity: FARGATE_SPOT
 services:
   api:
     enabled: true
     cpu: 512
     memoryMiB: 1024
-    capacity: FARGATE_SPOT
   ocpp:
     enabled: true
     cpu: 256
     memoryMiB: 512
-    capacity: FARGATE_SPOT
     deregistrationDelaySeconds: 60
   ocpi:
     enabled: true
     cpu: 256
     memoryMiB: 512
-    capacity: FARGATE_SPOT
   csms:
     enabled: true
     cpu: 256
     memoryMiB: 512
-    capacity: FARGATE_SPOT
   portal:
     enabled: true
     cpu: 256
     memoryMiB: 512
-    capacity: FARGATE_SPOT
   worker:
     enabled: true
     cpu: 256
     memoryMiB: 1024
-    capacity: FARGATE_SPOT
   css:
     enabled: true
     cpu: 256
     memoryMiB: 512
-    capacity: FARGATE_SPOT
   ocpiSim:
     enabled: false
   ocpiCpoSim:
