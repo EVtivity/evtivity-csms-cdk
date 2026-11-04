@@ -660,12 +660,14 @@ void describe('config validation', () => {
 
   void it('checks the storage image origins of STORAGE_IMG_SRC', () => {
     const ok = loadWith(
-      'storage:\n  imgSrc:\n    - https://s3.example.com\n    - http://minio.internal:9000\n    - "https://*.wasabisys.com"\n',
+      'storage:\n  imgSrc:\n    - https://s3.example.com\n    - http://minio.internal:9000\n    - "https://*.wasabisys.com"\n    - https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com\n',
     )() as Config;
     assert.deepEqual(ok.storage.imgSrc, [
       'https://s3.example.com',
       'http://minio.internal:9000',
       'https://*.wasabisys.com',
+      // Cloudflare R2: the account S3 API URL, which the CSMS stores as the endpoint.
+      'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',
     ]);
     assert.deepEqual((loadWith('{}\n')() as Config).storage.imgSrc, []);
     for (const bad of [

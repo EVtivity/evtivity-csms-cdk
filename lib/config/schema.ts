@@ -565,8 +565,9 @@ export const configSchema = z
         extraCorsOrigins: z.array(z.url()).default([]),
         // Origins the CSMS and the driver portal may load stored images from,
         // added to their CSP img-src (STORAGE_IMG_SRC on both tasks). Needed only
-        // when Settings > Integrations > S3 uses an S3-compatible provider: the
-        // stack bucket is AWS S3, which https://*.amazonaws.com already covers.
+        // when Settings > Integrations > S3 uses an S3-compatible provider or
+        // Cloudflare R2 (the account S3 API URL, https://<account id>.r2.cloudflarestorage.com):
+        // the stack bucket is AWS S3, which https://*.amazonaws.com already covers.
         imgSrc: z.array(storageImgSrcOrigin).max(20).default([]),
       })
       .prefault({}),
