@@ -229,6 +229,9 @@ export class AppStack extends Stack {
         environment['PAYMENT_TERMINALS_ALLOW_SIMULATED'] = String(
           config.paymentTerminals.allowSimulatedProvider,
         );
+        environment['ENERGY_ASSETS_ALLOW_SIMULATED'] = String(
+          config.loadManagement.allowSimulatedEnergyAssets,
+        );
       }
 
       switch (name) {

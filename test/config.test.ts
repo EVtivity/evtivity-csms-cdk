@@ -517,6 +517,23 @@ void describe('config validation', () => {
     );
   });
 
+  void it('gates the simulated energy asset readings', () => {
+    type LoadManagement = { loadManagement: { allowSimulatedEnergyAssets: boolean } };
+    const lm = (local: string, base = BASE) =>
+      (loadWith(local, base)() as LoadManagement).loadManagement;
+    assert.equal(lm('').allowSimulatedEnergyAssets, false);
+    assert.equal(
+      lm('loadManagement:\n  allowSimulatedEnergyAssets: true\n').allowSimulatedEnergyAssets,
+      true,
+    );
+    assert.throws(
+      loadWith('loadManagement:\n  allowSimulatedEnergyAssets: true\n', { ...BASE, env: 'prod' }),
+      /simulated energy asset readings are not allowed in prod/,
+    );
+    assert.throws(loadWith('loadManagement:\n  allowSimulatedEnergyAssets: "true"\n'));
+    assert.throws(loadWith('loadManagement:\n  unknown: true\n'));
+  });
+
   void it('validates the payment provider setting', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: stripe\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  payments.provider: none\n'));

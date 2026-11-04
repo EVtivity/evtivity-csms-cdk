@@ -299,7 +299,8 @@ const PAYMENT_TERMINAL_TEST_BASE_URL = 'PAYMENT_TERMINAL_TEST_BASE_URL';
  * `NODE_ENV: test` there undid the prod refusal of the simulated provider and
  * the weak secret checks (security review R2-L1). Set them through their
  * config fields (`payments.allowSimulatedProvider`,
- * `paymentTerminals.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+ * `paymentTerminals.allowSimulatedProvider`,
+ * `loadManagement.allowSimulatedEnergyAssets`, `seedDemo.enabled`, the domain).
  */
 /**
  * One origin of STORAGE_IMG_SRC: scheme://host[:port] with an optional *.
@@ -319,6 +320,7 @@ export const DERIVED_SERVICE_ENV_VARS = [
   'NODE_ENV',
   'PAYMENTS_ALLOW_SIMULATED',
   'PAYMENT_TERMINALS_ALLOW_SIMULATED',
+  'ENERGY_ASSETS_ALLOW_SIMULATED',
   'SEED_DEMO',
   'TRUST_PROXY',
   'OCPP_TRUSTED_PROXY_CIDRS',
@@ -710,6 +712,15 @@ export const configSchema = z
     paymentTerminals: z
       .strictObject({
         allowSimulatedProvider: z.boolean().default(false),
+      })
+      .prefault({}),
+
+    // Allows simulated battery and solar readings in load management in the
+    // api and worker services (ENERGY_ASSETS_ALLOW_SIMULATED). Simulated
+    // readings are not real site data. Not allowed in prod.
+    loadManagement: z
+      .strictObject({
+        allowSimulatedEnergyAssets: z.boolean().default(false),
       })
       .prefault({}),
 
@@ -1110,6 +1121,13 @@ export const configSchema = z
         code: 'custom',
         path: ['paymentTerminals', 'allowSimulatedProvider'],
         message: 'the simulated payment terminal provider is not allowed in prod',
+      });
+    }
+    if (c.loadManagement.allowSimulatedEnergyAssets && c.env === 'prod') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['loadManagement', 'allowSimulatedEnergyAssets'],
+        message: 'simulated energy asset readings are not allowed in prod',
       });
     }
     if (c.seedDemo.enabled && !c.payments.allowSimulatedProvider) {

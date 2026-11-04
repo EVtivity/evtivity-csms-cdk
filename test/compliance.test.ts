@@ -152,6 +152,25 @@ for (const env of ENVS) {
       }
     });
 
+    void it('Load management: api and worker get the simulated energy asset gate, off by default', () => {
+      const containers = ofType(resources, 'AWS::ECS::TaskDefinition')
+        .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])
+        .filter((c) =>
+          (c.Environment ?? []).some((e) => e.Name === 'ENERGY_ASSETS_ALLOW_SIMULATED'),
+        );
+      assert.equal(containers.length, 2, 'the api and worker services carry the gate');
+      for (const c of containers) {
+        const env = (c.Environment ?? []) as { Name: string; Value?: unknown }[];
+        const value = env.find((e) => e.Name === 'ENERGY_ASSETS_ALLOW_SIMULATED')?.Value;
+        assert.equal(value, String(config.loadManagement.allowSimulatedEnergyAssets));
+        if (config.env === 'prod') assert.equal(value, 'false');
+        assert.ok(
+          !(c.Environment ?? []).some((e) => e.Name === 'OCPP_HEALTH_PORT'),
+          'ocpp gets no energy asset gate',
+        );
+      }
+    });
+
     void it('OCTT: the ocpp service reaches the worker OCSP responder only when configured', () => {
       const worker = ofType(resources, 'AWS::ECS::TaskDefinition')
         .flatMap((td) => (td['ContainerDefinitions'] as Container[] | undefined) ?? [])

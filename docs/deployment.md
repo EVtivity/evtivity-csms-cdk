@@ -233,6 +233,10 @@ Sets `PAYMENTS_ALLOW_SIMULATED` on the api, ocpp, and worker services, which all
 
 Sets `PAYMENT_TERMINALS_ALLOW_SIMULATED` on the api and worker services, which allows the simulated payment terminal provider. It moves no money. Off by default. Prod rejects it. `seedDemo` does not need it: the demo seed creates no terminals.
 
+### Simulated energy assets: `loadManagement.allowSimulatedEnergyAssets`
+
+Sets `ENERGY_ASSETS_ALLOW_SIMULATED` on the api and worker services, which allows simulated battery and solar readings in load management. Simulated readings are not real site data. Off by default. Prod rejects it.
+
 ### Notification test sink: refused
 
 `NOTIFICATIONS_ALLOW_TEST_SINK` and `NOTIFICATIONS_TEST_SINK_URL` send driver SMS and push to a local development service instead of Twilio and Expo. They are for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets either one, in every environment. The services also refuse them under `NODE_ENV=production`, which the stack sets.
@@ -245,7 +249,7 @@ Sets `PAYMENT_TERMINALS_ALLOW_SIMULATED` on the api and worker services, which a
 
 `PAYMENT_TERMINAL_TEST_BASE_URL` points the ID TECH payment terminal adapter at a local mock server, which would receive the ID TECH credentials. It is for the local Docker Compose stack only. The synth fails when any service's `env` or `secrets` sets it, in every environment. The API and worker also refuse it under `NODE_ENV=production`, which the stack sets.
 
-The stack sets `NODE_ENV`, `PAYMENTS_ALLOW_SIMULATED`, `PAYMENT_TERMINALS_ALLOW_SIMULATED`, `SEED_DEMO`, `TRUST_PROXY`, `OCPP_TRUSTED_PROXY_CIDRS`, `CORS_ORIGIN`, `COOKIE_DOMAIN`, `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY` itself. The synth fails when a service's `env` or `secrets` sets one of them, in every environment: a service value would replace the derived one and could turn on the simulated provider or a test mode in prod. Use the config fields instead (`payments.allowSimulatedProvider`, `paymentTerminals.allowSimulatedProvider`, `seedDemo.enabled`, the domain).
+The stack sets `NODE_ENV`, `PAYMENTS_ALLOW_SIMULATED`, `PAYMENT_TERMINALS_ALLOW_SIMULATED`, `ENERGY_ASSETS_ALLOW_SIMULATED`, `SEED_DEMO`, `TRUST_PROXY`, `OCPP_TRUSTED_PROXY_CIDRS`, `CORS_ORIGIN`, `COOKIE_DOMAIN`, `JWT_SECRET` and `SETTINGS_ENCRYPTION_KEY` itself. The synth fails when a service's `env` or `secrets` sets one of them, in every environment: a service value would replace the derived one and could turn on the simulated provider or a test mode in prod. Use the config fields instead (`payments.allowSimulatedProvider`, `paymentTerminals.allowSimulatedProvider`, `loadManagement.allowSimulatedEnergyAssets`, `seedDemo.enabled`, the domain).
 
 ### Conformance OCSP responder: `octt.ocspResponder`
 
