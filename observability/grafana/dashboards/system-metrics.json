@@ -1290,6 +1290,79 @@
         "legend": { "displayMode": "list", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "desc" }
       }
+    },
+    {
+      "type": "row",
+      "title": "Authentication",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 81 },
+      "id": 60,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed Sign-Ins per Minute by Realm and Method",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 82 },
+      "id": 61,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (realm, method) (rate(auth_failures_total[5m])) * 60",
+          "legendFormat": "{{realm}} {{method}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "description": "Operator and driver sign-ins refused: password, mfa (sign-in codes), passkey and webauthn, sso, and api_key requests. The audit log names the accounts."
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed Sign-Ins (15 min) by Reason",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 82 },
+      "id": 62,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (realm, reason) (increase(auth_failures_total[15m]))",
+          "legendFormat": "{{realm}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
     }
   ]
 }
