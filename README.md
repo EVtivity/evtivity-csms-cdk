@@ -212,7 +212,7 @@ Set shorter retention for these tables in the CSMS under **Settings > Data Reten
 
 ### WAF
 
-qa and prod run the web application firewall. [docs/security.md](docs/security.md#waf-rules) lists every rule and why it exists. Stripe webhooks (`/v1/webhooks/payments/stripe`) pass through an IP set that must follow Stripe's published addresses. The Adyen webhook (`/v1/webhooks/payments/adyen`) skips the country rule and has its own rate limit:
+qa and prod run the web application firewall. [docs/security.md](docs/security.md#waf-rules) lists every rule and why it exists. The bus depot WebSocket path (`/vdv463`) skips the country rule only. Stripe webhooks (`/v1/webhooks/payments/stripe`) pass through an IP set that must follow Stripe's published addresses. The Adyen webhook (`/v1/webhooks/payments/adyen`) skips the country rule and has its own rate limit:
 
 ```bash
 AWS_PROFILE=<name> ./scripts/stripe-webhook-ips.sh prod diff   # also: sync, list

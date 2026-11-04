@@ -527,6 +527,34 @@ for (const env of ENVS) {
       // behind the country rule.
       const adyenPath = '"SearchString":"/v1/webhooks/payments/adyen"';
       const terminalPath = '"SearchString":"/v1/webhooks/payment-terminals/"';
+      // The GeoAllow exemption: the same webhook paths in one regex, and the
+      // bus depot WebSocket path (VDV 463) on the raw path, exact.
+      const webhookRegex = '^/v1/webhooks/payment(?:s/adyen$|-terminals/)';
+      const depotRegex = '^/vdv463/?$';
+      for (const p of ['/v1/webhooks/payments/adyen', '/v1/webhooks/payment-terminals/idtech']) {
+        assert.match(p, new RegExp(webhookRegex), p);
+      }
+      for (const p of [
+        '/v1/webhooks/payments/adyen/x',
+        '/v1/webhooks/payments/stripe',
+        '/v1/webhooks/payment-terminals',
+        '/v1/webhooks/payments/adyenx',
+      ]) {
+        assert.doesNotMatch(p, new RegExp(webhookRegex), p);
+      }
+      for (const p of ['/vdv463', '/vdv463/']) assert.match(p, new RegExp(depotRegex), p);
+      for (const p of [
+        '/vdv4630',
+        '/vdv463/x',
+        '/vdv463//',
+        '//vdv463',
+        '/vdv463/../v1/auth/login',
+        '/vdv46%33',
+        '/VDV463',
+        '/v1/vdv463',
+      ]) {
+        assert.doesNotMatch(p, new RegExp(depotRegex), p);
+      }
       const webhook = byName('PaymentWebhookRateLimit');
       assert.equal(Boolean(webhook), api != null);
       assert.equal(byName('AdyenWebhookRateLimit'), undefined);
@@ -547,13 +575,30 @@ for (const env of ENVS) {
             geoText.includes(`{"NotStatement":{"Statement":{"AndStatement":{"Statements":[`),
             'GeoAllow exempts the provider webhooks',
           );
-          assert.ok(geoText.includes(adyenPath), 'GeoAllow names the Adyen path');
-          assert.ok(geoText.includes(terminalPath), 'GeoAllow names the terminal path');
+          assert.ok(geoText.includes(`"SearchString":"${api}"`), 'GeoAllow exemption is API only');
+          assert.ok(
+            geoText.includes(
+              `"SearchString":"POST","TextTransformations":[{"Priority":0,"Type":"NONE"}]}},{"RegexMatchStatement":{"FieldToMatch":{"UriPath":{}},"RegexString":"${webhookRegex}","TextTransformations":[{"Priority":0,"Type":"URL_DECODE"},{"Priority":1,"Type":"NORMALIZE_PATH"}]}}`,
+            ),
+            'GeoAllow exempts the provider webhook POSTs',
+          );
+          assert.ok(
+            geoText.includes(
+              `{"RegexMatchStatement":{"FieldToMatch":{"UriPath":{}},"RegexString":"${depotRegex}","TextTransformations":[{"Priority":0,"Type":"NONE"}]}}`,
+            ),
+            'GeoAllow exempts the depot path',
+          );
           assert.ok(!geoText.includes('/v1/webhooks/payments/stripe'), 'Stripe is not geo exempt');
         }
+        // The depot path skips the country rule only: every other address
+        // rule and the rate limits still see it.
+        for (const r of rules) {
+          if (r === geo) continue;
+          assert.ok(!text(r).includes('vdv463'), `${r.Name} has no depot exemption`);
+        }
       } else if (geo) {
-        assert.ok(!text(geo).includes(adyenPath));
-        assert.ok(!text(geo).includes(terminalPath));
+        assert.ok(!text(geo).includes('webhooks'));
+        assert.ok(!text(geo).includes('vdv463'));
       }
 
       // Path limits count POSTs only, and never token refresh or logout.

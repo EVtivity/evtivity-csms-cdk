@@ -311,6 +311,49 @@ export class AlbStack extends Stack {
               path('STARTS_WITH', '/v1/webhooks/payment-terminals/'),
             ]),
           ]);
+    // Bus depot management systems (VDV 463) open a WebSocket to /vdv463 and
+    // can sit in another country (a depot operator's data center), so the
+    // country rule skips that path too. The API checks their Basic auth with a
+    // lockout and limits upgrades per address. The IP reputation, anonymous
+    // IP, rate and managed rules still apply. The anchored regex reads the raw
+    // path with no text transformation and matches only "/vdv463" and
+    // "/vdv463/", the two paths the API accepts: an encoded or dotted variant
+    // does not match and stays behind the country rule (fail closed).
+    const depotPath: Statement = {
+      regexMatchStatement: {
+        fieldToMatch: { uriPath: {} },
+        regexString: '^/vdv463/?$',
+        textTransformations: [{ priority: 0, type: 'NONE' }],
+      },
+    };
+    // The GeoAllow exemption: the provider webhooks and the depot path, sharing
+    // one API host match. Its webhook regex matches the same paths as the two
+    // matches of providerWebhook (the exact Adyen path and the terminal prefix,
+    // after URL_DECODE and NORMALIZE_PATH). WAF CheckCapacity: 1,500 WCU for
+    // the web ACL this way, 1,501 with the two path matches, so the ACL stays
+    // inside the base price.
+    const geoExempt =
+      apiHost == null
+        ? undefined
+        : all([
+            hostIs(apiHost),
+            any([
+              all([
+                methodIs('POST'),
+                {
+                  regexMatchStatement: {
+                    fieldToMatch: { uriPath: {} },
+                    regexString: '^/v1/webhooks/payment(?:s/adyen$|-terminals/)',
+                    textTransformations: [
+                      { priority: 0, type: 'URL_DECODE' },
+                      { priority: 1, type: 'NORMALIZE_PATH' },
+                    ],
+                  },
+                },
+              ]),
+              depotPath,
+            ]),
+          ]);
 
     const stripeIps = config.waf.stripeWebhookIps;
     if (apiHost != null && stripeIps.length > 0) {
@@ -382,7 +425,7 @@ export class AlbStack extends Stack {
         priority: 5,
         action: { block: {} },
         statement: all(
-          [outside, notOcpp, providerWebhook ? not(providerWebhook) : undefined].filter(
+          [outside, notOcpp, geoExempt ? not(geoExempt) : undefined].filter(
             (st): st is Statement => st != null,
           ),
         ),
