@@ -220,6 +220,24 @@ for (const env of ENVS) {
       }
     });
 
+    void it('API: the HTTPS rule of the api host forwards every path, the bus depot WebSocket included', () => {
+      // Depot systems open wss://<api host>/vdv463 (VDV 463). The api host rule
+      // has no path condition, so the upgrade reaches the API target group, and
+      // the ALB idle timeout stays above the 30 s pings the API sends.
+      const apiHost = config.services.api.enabled ? serviceHost(config, 'api') : undefined;
+      if (apiHost == null) return;
+      const rules = ofType(resources, 'AWS::ElasticLoadBalancingV2::ListenerRule').filter((r) =>
+        JSON.stringify(r['Conditions']).includes(`"${apiHost}"`),
+      );
+      assert.equal(rules.length, 1, 'one listener rule for the api host');
+      const conditions = rules[0]?.['Conditions'] as { Field: string }[];
+      assert.deepEqual(
+        conditions.map((c) => c.Field),
+        ['host-header'],
+      );
+      assert.ok(config.alb.idleTimeoutSeconds >= 60);
+    });
+
     void it('ECS: services are deleted before the capacity provider association', () => {
       const entries = Object.entries(resources);
       const association = entries.find(

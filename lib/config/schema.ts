@@ -1232,13 +1232,13 @@ export const configSchema = z
         });
       }
     }
-    const epcQrEnabled = c.appSettings['invoice.epcQrEnabled'];
-    if (epcQrEnabled != null && typeof epcQrEnabled !== 'boolean') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['appSettings', 'invoice.epcQrEnabled'],
-        message: 'use true or false',
-      });
+    // invoice.epcQrEnabled and the bus depot interface switch (VDV 463, off on a fresh install)
+    // are stored as JSON booleans.
+    for (const key of ['invoice.epcQrEnabled', 'vdv463.enabled']) {
+      const value = c.appSettings[key];
+      if (value != null && typeof value !== 'boolean') {
+        ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
+      }
     }
     // Password policy and session lifetimes (v0.1.48), validated like the Helm chart and the API
     // (`@evtivity/lib/password-policy` and `session-lifetimes`, copied because the CDK cannot

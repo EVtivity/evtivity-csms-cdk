@@ -255,6 +255,10 @@ void describe('config validation', () => {
       /at most 70/,
     );
     assert.throws(loadWith('appSettings:\n  invoice.epcQrEnabled: "yes"\n'), /true or false/);
+    assert.doesNotThrow(loadWith('appSettings:\n  vdv463.enabled: true\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  vdv463.enabled: false\n'));
+    assert.throws(loadWith('appSettings:\n  vdv463.enabled: "true"\n'), /true or false/);
+    assert.throws(loadWith('appSettings:\n  vdv463.enabled: 1\n'), /true or false/);
     assert.doesNotThrow(
       loadWith(
         'appSettings:\n  security.password.minLength: 8\n' +
