@@ -1031,6 +1031,28 @@ export const configSchema = z
         message: `unsupported currency ${String(currency)}: use an uppercase two-decimal ISO 4217 code such as USD or EUR`,
       });
     }
+    // The distance unit and language new drivers start with (Settings > Company), the values the
+    // API accepts (`@evtivity/lib/driver-defaults` and `languages`, copied because the CDK cannot
+    // import them).
+    const distanceUnit = c.appSettings['system.distanceUnit'];
+    if (distanceUnit != null && !['miles', 'km'].includes(String(distanceUnit))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'system.distanceUnit'],
+        message: `unsupported distance unit ${String(distanceUnit)}: use miles or km`,
+      });
+    }
+    const driverLanguage = c.appSettings['system.driverLanguage'];
+    if (
+      driverLanguage != null &&
+      !['en', 'de', 'es', 'ko', 'zh', 'zh-TW'].includes(String(driverLanguage))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'system.driverLanguage'],
+        message: `unsupported driver language ${String(driverLanguage)}: use en, de, es, ko, zh or zh-TW`,
+      });
+    }
     for (const az of c.vpc.availabilityZones) {
       if (!az.startsWith(c.region)) {
         ctx.addIssue({
