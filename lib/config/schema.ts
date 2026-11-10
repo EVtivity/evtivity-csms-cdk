@@ -1273,9 +1273,10 @@ export const configSchema = z
         });
       }
     }
-    // invoice.epcQrEnabled and the bus depot interface switch (VDV 463, off on a fresh install)
-    // are stored as JSON booleans.
-    for (const key of ['invoice.epcQrEnabled', 'vdv463.enabled']) {
+    // invoice.epcQrEnabled, the bus depot interface switch (VDV 463, off on a fresh install) and
+    // the driver RFID self-service switch (on on a fresh install; the API reads any other value
+    // as off) are stored as JSON booleans.
+    for (const key of ['invoice.epcQrEnabled', 'vdv463.enabled', 'portal.rfidSelfServiceEnabled']) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
         ctx.addIssue({ code: 'custom', path: ['appSettings', key], message: 'use true or false' });
