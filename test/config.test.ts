@@ -193,6 +193,8 @@ void describe('config validation', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  system.driverLanguage: zh-TW\n'));
     assert.throws(loadWith('appSettings:\n  system.distanceUnit: mi\n'), /distance unit/);
     assert.throws(loadWith('appSettings:\n  system.driverLanguage: fr\n'), /driver language/);
+    assert.throws(loadWith('appSettings:\n  system.distanceUnit: [km]\n'), /distance unit/);
+    assert.throws(loadWith('appSettings:\n  system.driverLanguage: [de]\n'), /driver language/);
   });
 
   void it('rejects the moved stripe payment settings', () => {

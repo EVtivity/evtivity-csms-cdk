@@ -1035,7 +1035,10 @@ export const configSchema = z
     // API accepts (`@evtivity/lib/driver-defaults` and `languages`, copied because the CDK cannot
     // import them).
     const distanceUnit = c.appSettings['system.distanceUnit'];
-    if (distanceUnit != null && !['miles', 'km'].includes(String(distanceUnit))) {
+    if (
+      distanceUnit != null &&
+      (typeof distanceUnit !== 'string' || !['miles', 'km'].includes(distanceUnit))
+    ) {
       ctx.addIssue({
         code: 'custom',
         path: ['appSettings', 'system.distanceUnit'],
@@ -1045,7 +1048,8 @@ export const configSchema = z
     const driverLanguage = c.appSettings['system.driverLanguage'];
     if (
       driverLanguage != null &&
-      !['en', 'de', 'es', 'ko', 'zh', 'zh-TW'].includes(String(driverLanguage))
+      (typeof driverLanguage !== 'string' ||
+        !['en', 'de', 'es', 'ko', 'zh', 'zh-TW'].includes(driverLanguage))
     ) {
       ctx.addIssue({
         code: 'custom',
