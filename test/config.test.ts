@@ -274,6 +274,12 @@ void describe('config validation', () => {
       loadWith('appSettings:\n  portal.rfidSelfServiceEnabled: "false"\n'),
       /true or false/,
     );
+    assert.doesNotThrow(loadWith('appSettings:\n  system.updateCheckEnabled: true\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  system.updateCheckEnabled: false\n'));
+    assert.throws(
+      loadWith('appSettings:\n  system.updateCheckEnabled: "false"\n'),
+      /true or false/,
+    );
     assert.doesNotThrow(
       loadWith(
         'appSettings:\n  security.password.minLength: 8\n' +
