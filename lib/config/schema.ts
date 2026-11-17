@@ -1279,13 +1279,15 @@ export const configSchema = z
     }
     // invoice.epcQrEnabled, the bus depot interface switch (VDV 463, off on a fresh install) and
     // the driver RFID self-service switch (on on a fresh install; the API reads any other value
-    // as off) and the CSMS update check switch (on on a fresh install; false stops the worker from
-    // contacting evtivity.com) are stored as JSON booleans.
+    // as off), the CSMS update check switch (on on a fresh install; false stops the worker from
+    // contacting evtivity.com) and the station units switch (off on a fresh install; the API
+    // reads any other value as off) are stored as JSON booleans.
     for (const key of [
       'invoice.epcQrEnabled',
       'vdv463.enabled',
       'portal.rfidSelfServiceEnabled',
       'system.updateCheckEnabled',
+      'stationUnits.enabled',
     ]) {
       const value = c.appSettings[key];
       if (value != null && typeof value !== 'boolean') {
