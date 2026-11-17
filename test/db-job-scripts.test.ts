@@ -55,7 +55,7 @@ function resolveText(value: unknown): string {
  * Runs SEED_SETTINGS_JS against a stub of postgres.js and returns the bound
  * parameters of each statement.
  */
-function runSeedSettings(source: string, settingsJson: string): unknown[][] {
+function runSeedSettings(source: string, settingsJson: string, unitsInUse = 0): unknown[][] {
   const dir = mkdtempSync(join(tmpdir(), 'evt-seed-settings-'));
   const stub = join(dir, 'node_modules', 'postgres');
   mkdirSync(stub, { recursive: true });
@@ -63,13 +63,15 @@ function runSeedSettings(source: string, settingsJson: string): unknown[][] {
   writeFileSync(
     join(stub, 'index.js'),
     "import { appendFileSync } from 'node:fs';\n" +
-      'export default () => ({\n' +
+      'const sql = {\n' +
       '  unsafe: async (query, params) => {\n' +
       "    appendFileSync(process.env.CALLS_FILE, JSON.stringify({ query, params }) + '\\n');\n" +
-      '    return [];\n' +
+      "    return query.includes('uses_units') ? [{ n: Number(process.env.UNITS_IN_USE) }] : [];\n" +
       '  },\n' +
+      '  begin: async (fn) => fn(sql),\n' +
       '  end: async () => {},\n' +
-      '});\n',
+      '};\n' +
+      'export default () => sql;\n',
   );
   const script = join(dir, 'seed-settings.mjs');
   writeFileSync(script, source);
@@ -81,14 +83,16 @@ function runSeedSettings(source: string, settingsJson: string): unknown[][] {
       DATABASE_URL: 'postgres://stub',
       SETTINGS_JSON: settingsJson,
       CALLS_FILE: calls,
+      UNITS_IN_USE: String(unitsInUse),
     },
     stdio: 'pipe',
   });
   return readFileSync(calls, 'utf8')
     .split('\n')
     .filter((line) => line !== '')
-    .map((line) => {
-      const call = JSON.parse(line) as { query: string; params: unknown[] };
+    .map((line) => JSON.parse(line) as { query: string; params: unknown[] })
+    .filter((call) => call.query.startsWith('INSERT INTO settings'))
+    .map((call) => {
       assert.match(call.query, /\$2::text::jsonb/);
       return call.params;
     });
@@ -129,6 +133,18 @@ void describe('database job scripts', () => {
     assert.deepEqual(stored['mobile.app.urlSchemes'], ['evtivity', 'acme']);
     assert.deepEqual(stored['mobile.app.androidPackageNames'], ['com.evtivity.driver']);
     assert.equal(stored['company.currency'], 'EUR');
+  });
+
+  // The API refuses turning Enable Station Units off while a station uses
+  // units (STATION_UNITS_FEATURE_IN_USE); the settings job keeps it on too.
+  void it('keeps stationUnits.enabled on while a station uses units', () => {
+    const env = dbJobEnvironment('appSettings:\n  stationUnits.enabled: false\n');
+    const source = env['SEED_SETTINGS_JS'] as string;
+    const settingsJson = resolveText(env['SETTINGS_JSON']);
+    const kept = runSeedSettings(source, settingsJson, 2).map(([key]) => key);
+    assert.ok(!kept.includes('stationUnits.enabled'));
+    const written = runSeedSettings(source, settingsJson, 0).map(([key]) => key);
+    assert.ok(written.includes('stationUnits.enabled'));
   });
 
   // The CSMS seed only adds missing settings (it never overwrites), so the

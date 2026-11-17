@@ -75,16 +75,35 @@ import postgres from 'postgres';
 const settings = JSON.parse(process.env.SETTINGS_JSON ?? '{}');
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 
+const UPSERT =
+  'INSERT INTO settings (key, value) VALUES ($1, $2::text::jsonb) ' +
+  'ON CONFLICT (key) DO UPDATE SET value = $2::text::jsonb, updated_at = now()';
+
 try {
   let count = 0;
   for (const [name, value] of Object.entries(settings)) {
     if (value === '' || value === null || value === undefined) continue;
     const json = JSON.stringify(value);
-    await sql.unsafe(
-      'INSERT INTO settings (key, value) VALUES ($1, $2::text::jsonb) ' +
-        'ON CONFLICT (key) DO UPDATE SET value = $2::text::jsonb, updated_at = now()',
-      [name, json],
-    );
+    // Enable Station Units stays on while a station uses units, as the API
+    // refuses it: decided under the lock the API's writer takes.
+    if (name === 'stationUnits.enabled' && value === false) {
+      const inUse = await sql.begin(async (tx) => {
+        await tx.unsafe("SELECT pg_advisory_xact_lock(hashtext('evtivity:station-units-feature'))");
+        const [row] = await tx.unsafe(
+          'SELECT count(*)::int AS n FROM charging_stations WHERE uses_units = true',
+        );
+        const n = Number(row?.n ?? 0);
+        if (n === 0) await tx.unsafe(UPSERT, [name, json]);
+        return n;
+      });
+      if (inUse > 0) {
+        console.log('[settings] stationUnits.enabled kept on: ' + String(inUse) + ' stations use units');
+        continue;
+      }
+      count++;
+      continue;
+    }
+    await sql.unsafe(UPSERT, [name, json]);
     count++;
   }
   console.log('[settings] upserted ' + String(count) + ' settings');
