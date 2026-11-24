@@ -188,6 +188,13 @@ void describe('config validation', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  company.currency: EUR\n'));
   });
 
+  void it('accepts monday or sunday as the company week start', () => {
+    assert.doesNotThrow(loadWith('appSettings:\n  company.weekStart: sunday\n'));
+    assert.doesNotThrow(loadWith('appSettings:\n  company.weekStart: monday\n'));
+    assert.throws(loadWith('appSettings:\n  company.weekStart: friday\n'), /monday or sunday/);
+    assert.throws(loadWith('appSettings:\n  company.weekStart: 1\n'), /monday or sunday/);
+  });
+
   void it('checks the distance unit and language of new drivers', () => {
     assert.doesNotThrow(loadWith('appSettings:\n  system.distanceUnit: km\n'));
     assert.doesNotThrow(loadWith('appSettings:\n  system.driverLanguage: zh-TW\n'));

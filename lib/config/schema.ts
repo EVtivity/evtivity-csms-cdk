@@ -1031,6 +1031,15 @@ export const configSchema = z
         message: `unsupported currency ${String(currency)}: use an uppercase two-decimal ISO 4217 code such as USD or EUR`,
       });
     }
+    // The first day of a report week (Settings > Company), the values the API accepts.
+    const weekStart = c.appSettings['company.weekStart'];
+    if (weekStart != null && weekStart !== 'monday' && weekStart !== 'sunday') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['appSettings', 'company.weekStart'],
+        message: `unsupported week start ${String(weekStart)}: use monday or sunday`,
+      });
+    }
     // The distance unit and language new drivers start with (Settings > Company), the values the
     // API accepts (`@evtivity/lib/driver-defaults` and `languages`, copied because the CDK cannot
     // import them).

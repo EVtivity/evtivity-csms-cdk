@@ -66,7 +66,7 @@ One-time steps before the first deploy of this version to an environment that al
 
 `config/<env>.yaml` holds every setting, validated by `lib/config/schema.ts`. `config/<env>.local.yaml` (gitignored) is deep-merged on top for account ids, hosted zone ids, and personal overrides. An empty or comment-only local file is fine.
 
-Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), the removed AI keys (see [AI assistant settings](#ai-assistant-settings-in-appsettings)), an `alb.idleTimeoutSeconds` under 60, invalid `mobile.app.*` lists, availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
+Validation is strict. A misspelled key (for example `waf.enable`) fails the synth instead of being ignored. The synth also fails for credentials in `appSettings` (keys ending in `Enc` belong in the dashboard), the moved `stripe.preAuthAmountCents` and `stripe.platformFeePercent` keys (now `payments.*`), the removed AI keys (see [AI assistant settings](#ai-assistant-settings-in-appsettings)), a `company.weekStart` other than `monday` or `sunday`, an `alb.idleTimeoutSeconds` under 60, invalid `mobile.app.*` lists, availability zones outside `region`, demo data in prod, OCPP TLS without its secret, and redeploys less often than credentials rotate.
 
 Common changes:
 
